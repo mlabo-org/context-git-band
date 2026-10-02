@@ -150,20 +150,31 @@ export const register: Register = on => {
             </Text>
           ) : null}
           {info === null ? null : (
-            <Text>
+            <Box>
               <Text dimColor>│ </Text>
               <Text bold>{info.branch}</Text>
-              <Text color={info.dirty > 0 ? 'yellow' : 'green'}>
-                {info.dirty > 0 ? ` ● ${info.dirty} 未コミット` : ' ✔ クリーン'}
+              {info.dirty > 0 ? (
+                <Box>
+                  <Text color="yellow"> ● </Text>
+                  <Button
+                    key="commit"
+                    label={`${info.dirty} 未コミット`}
+                    onPress={() => void $.prompt.submit({ text: '未コミットの変更をコミットして', asUser: true })}
+                  />
+                </Box>
+              ) : (
+                <Text color="green"> ✔ クリーン</Text>
+              )}
+              <Text>
+                {info.ahead === null ? (
+                  <Text dimColor>{info.otherHostOnly ? ' · upstreamなし' : ' · GitHub未公開'}</Text>
+                ) : info.ahead > 0 ? (
+                  <Text color="yellow"> · ↑{info.ahead} 未push</Text>
+                ) : null}
+                {info.behind > 0 ? <Text color="cyan"> · ↓{info.behind}</Text> : null}
+                <Text> </Text>
               </Text>
-              {info.ahead === null ? (
-                <Text dimColor>{info.otherHostOnly ? ' · upstreamなし' : ' · GitHub未公開'}</Text>
-              ) : info.ahead > 0 ? (
-                <Text color="yellow"> · ↑{info.ahead} 未push</Text>
-              ) : null}
-              {info.behind > 0 ? <Text color="cyan"> · ↓{info.behind}</Text> : null}
-              <Text> </Text>
-            </Text>
+            </Box>
           )}
           <Button key="hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
         </Box>
