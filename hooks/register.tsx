@@ -106,13 +106,28 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || (await read($, isHidden))) {
+    if (e.props.hasSurvey) {
       return next(e)
+    }
+
+    const { Box, Button, Text } = $.ui.resolve(e)
+
+    // Hidden: leave one small button that brings the band back
+    if (await read($, isHidden)) {
+      const beneath = await next(e)
+
+      return (
+        <Box flexDirection="column">
+          <Box>
+            <Button key="show" label="▸ ctx/git" onPress={() => update($, isHidden, () => false)} />
+          </Box>
+          {beneath ?? null}
+        </Box>
+      )
     }
 
     const { context } = await $.session.usage()
     const info = await read($, git)
-    const { Box, Button, Text } = $.ui.resolve(e)
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
