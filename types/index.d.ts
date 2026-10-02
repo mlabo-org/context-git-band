@@ -3,6 +3,7 @@ export type GitInfo = {
   dirty: number
   ahead: number | null
   behind: number
+  otherHostOnly: boolean
 }
 
 declare module 'claude-code' {

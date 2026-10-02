@@ -31,7 +31,14 @@ const parseStatus = (stdout: string): GitInfo => {
     dirty: rest.length,
     ahead: hasUpstream ? (ahead ? Number(ahead[1]) : 0) : null,
     behind: behind ? Number(behind[1]) : 0,
+    otherHostOnly: false,
   }
+}
+
+// True when the repo has remotes and none of them is on GitHub
+const hasOnlyOtherHost = (remotes: string) => {
+  const urls = remotes.split('\n').filter(line => line.trim() !== '')
+  return urls.length > 0 && !urls.some(line => line.includes('github.com'))
 }
 
 const EDITING_TOOLS = ['Bash', 'Edit', 'Write', 'NotebookEdit']
@@ -49,7 +56,12 @@ async function refreshGit($: EngineInterface, force: boolean) {
     const { exitCode, stdout } = await $.process.run(['git', 'status', '--porcelain=v1', '-b'], {
       timeoutMs: 5000,
     })
-    await update($, git, () => (exitCode === 0 ? parseStatus(stdout) : null))
+    const info = exitCode === 0 ? parseStatus(stdout) : null
+    if (info !== null && info.ahead === null) {
+      const remotes = await $.process.run(['git', 'remote', '-v'], { timeoutMs: 5000 })
+      info.otherHostOnly = remotes.exitCode === 0 && hasOnlyOtherHost(remotes.stdout)
+    }
+    await update($, git, () => info)
   } catch {
     await update($, git, () => null)
   }
@@ -127,7 +139,7 @@ export const register: Register = on => {
               {info.dirty > 0 ? ` ● ${info.dirty} 未コミット` : ' ✔ クリーン'}
             </Text>
             {info.ahead === null ? (
-              <Text dimColor> · upstreamなし</Text>
+              <Text dimColor>{info.otherHostOnly ? ' · upstreamなし' : ' · GitHub未公開'}</Text>
             ) : info.ahead > 0 ? (
               <Text color="yellow"> · ↑{info.ahead} 未push</Text>
             ) : null}
