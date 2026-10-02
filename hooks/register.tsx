@@ -116,38 +116,43 @@ export const register: Register = on => {
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
+    // The band is one site shared by every plugin: keep what the ones beneath draw
+    const below = await next(e)
 
     return (
-      <Box>
-        {hasContext ? (
-          <Text color={w.color}>
-            {w.icon} {w.label} {context.percent}%{' '}
-          </Text>
-        ) : (
-          <Text dimColor>ctx -- </Text>
-        )}
-        {hasContext && context.tokens !== undefined ? (
-          <Text dimColor>
-            ({kilo(context.tokens)}/{kilo(context.window)}){' '}
-          </Text>
-        ) : null}
-        {info === null ? null : (
-          <Text>
-            <Text dimColor>│ </Text>
-            <Text bold>{info.branch}</Text>
-            <Text color={info.dirty > 0 ? 'yellow' : 'green'}>
-              {info.dirty > 0 ? ` ● ${info.dirty} 未コミット` : ' ✔ クリーン'}
+      <Box flexDirection="column">
+        <Box>
+          {hasContext ? (
+            <Text color={w.color}>
+              {w.icon} {w.label} {context.percent}%{' '}
             </Text>
-            {info.ahead === null ? (
-              <Text dimColor>{info.otherHostOnly ? ' · upstreamなし' : ' · GitHub未公開'}</Text>
-            ) : info.ahead > 0 ? (
-              <Text color="yellow"> · ↑{info.ahead} 未push</Text>
-            ) : null}
-            {info.behind > 0 ? <Text color="cyan"> · ↓{info.behind}</Text> : null}
-            <Text> </Text>
-          </Text>
-        )}
-        <Button key="hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
+          ) : (
+            <Text dimColor>ctx -- </Text>
+          )}
+          {hasContext && context.tokens !== undefined ? (
+            <Text dimColor>
+              ({kilo(context.tokens)}/{kilo(context.window)}){' '}
+            </Text>
+          ) : null}
+          {info === null ? null : (
+            <Text>
+              <Text dimColor>│ </Text>
+              <Text bold>{info.branch}</Text>
+              <Text color={info.dirty > 0 ? 'yellow' : 'green'}>
+                {info.dirty > 0 ? ` ● ${info.dirty} 未コミット` : ' ✔ クリーン'}
+              </Text>
+              {info.ahead === null ? (
+                <Text dimColor>{info.otherHostOnly ? ' · upstreamなし' : ' · GitHub未公開'}</Text>
+              ) : info.ahead > 0 ? (
+                <Text color="yellow"> · ↑{info.ahead} 未push</Text>
+              ) : null}
+              {info.behind > 0 ? <Text color="cyan"> · ↓{info.behind}</Text> : null}
+              <Text> </Text>
+            </Text>
+          )}
+          <Button key="hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
+        </Box>
+        {below ?? null}
       </Box>
     )
   })
