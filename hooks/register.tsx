@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
-import type { GitInfo } from '../types'
+import type { GitInfo, QuotaReading, QuotaWindow } from '../types'
 
 const git = atom({ plugin: 'context-git-band', key: 'git' } as const, null)
 const isHidden = atom({ plugin: 'context-git-band', key: 'isHidden' } as const, false)
@@ -16,6 +16,11 @@ const weather = (percent: number) => {
 }
 
 const kilo = (n: number) => `${Math.round(n / 1000)}k`
+
+// Subscription windows shown as remaining percent, like mini-system-monitor-rs
+const QUOTA_LABELS: Record<string, string> = { five_hour: '5h', seven_day: '週' }
+
+const quotaColor = (remaining: number) => (remaining <= 10 ? 'red' : remaining <= 25 ? 'yellow' : undefined)
 
 // `git status --porcelain=v1 -b`: first line is the branch, the rest are changed files
 const parseStatus = (stdout: string): GitInfo => {
@@ -67,12 +72,136 @@ async function refreshGit($: EngineInterface, force: boolean) {
   }
 }
 
+// The subscription's 5-hour and weekly windows, from two sources:
+// - this session's API responses, pushed by `session.measure` (instant, this session's use only)
+// - the account usage endpoint mini-system-monitor-rs reads, polled (every session's use)
+// The newer reading wins. Polls are shared across sessions through `$.store`,
+// so any number of open sessions makes the requests of one.
+
+const quota = atom({ plugin: 'context-git-band', key: 'quota' } as const, null)
+
+// Undocumented and may change; it answers 429 to aggressive polling
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+const OAUTH_BETA = 'oauth-2025-04-20'
+const STORE_KEY = 'quota'
+const POLL_GAP_MS = 180_000
+const EVENT_GAP_MS = 60_000
+const CHECK_EVERY_MS = 30_000
+const MAX_BACKOFF_MS = 900_000
+// How long a session that started a request keeps the others from starting one
+const CLAIM_MS = 15_000
+
+const KINDS = ['five_hour', 'seven_day']
+
+type Shared = {
+  reading: QuotaReading | null
+  fetchedAt: number
+  failures: number
+  nextAt: number
+  claimedUntil: number
+}
+
+const EMPTY: Shared = { reading: null, fetchedAt: 0, failures: 0, nextAt: 0, claimedUntil: 0 }
+
+const loadShared = async ($: EngineInterface): Promise<Shared> => {
+  const value = await $.store.get(STORE_KEY)
+  return typeof value === 'object' && value !== null ? { ...EMPTY, ...(value as Partial<Shared>) } : { ...EMPTY }
+}
+
+const isNewer = (next: QuotaReading, current: QuotaReading | null | undefined) =>
+  current === null || current === undefined || next.at > current.at
+
+const adopt = ($: EngineInterface, reading: QuotaReading) =>
+  update($, quota, current => (isNewer(reading, current) ? reading : current))
+
+// A reading from this session's own API responses: shown at once and shared
+async function takeLive($: EngineInterface, rateLimits: SessionRateLimit[]) {
+  const windows: QuotaWindow[] = rateLimits
+    .filter(limit => KINDS.includes(limit.kind))
+    .map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt }))
+  if (windows.length === 0) return
+  const reading = { windows, at: await $.clock.now() }
+  await adopt($, reading)
+  const shared = await loadShared($)
+  if (isNewer(reading, shared.reading)) await $.store.set(STORE_KEY, { ...shared, reading })
+}
+
+type UsageWindow = { utilization?: number | null; resets_at?: string | null } | null | undefined
+
+const parseUsage = (text: string, at: number): QuotaReading | null => {
+  const body = JSON.parse(text) as Record<string, UsageWindow>
+  const windows = KINDS.flatMap(kind => {
+    const window = body[kind]
+    return typeof window?.utilization === 'number'
+      ? [{ kind, percentUsed: window.utilization, resetsAt: window.resets_at ?? undefined }]
+      : []
+  })
+  return windows.length === 0 ? null : { windows, at }
+}
+
+// Takes what another session fetched, then polls when `gapMs` has passed since
+// the last poll and no backoff or other session's request stands in the way
+async function syncQuota($: EngineInterface, gapMs: number) {
+  const shared = await loadShared($)
+  if (shared.reading !== null) await adopt($, shared.reading)
+
+  const now = await $.clock.now()
+  if (now < shared.nextAt || now < shared.claimedUntil || now - shared.fetchedAt < gapMs) return
+
+  // A subscription signs in with a bearer token; an API key has no such quota
+  const auth = await $.session.authorize()
+  if (auth === null || auth.kind !== 'bearer') return
+
+  await $.store.set(STORE_KEY, { ...shared, claimedUntil: now + CLAIM_MS })
+  let reading: QuotaReading | null = null
+  try {
+    const response = await $.http.fetch(USAGE_URL, {
+      auth: auth.handle,
+      headers: { 'anthropic-beta': OAUTH_BETA, Accept: 'application/json' },
+    })
+    if (response.ok) reading = parseUsage(response.text, now)
+  } catch {
+    reading = null
+  }
+
+  const latest = await loadShared($)
+  if (reading === null) {
+    const failures = shared.failures + 1
+    await $.store.set(STORE_KEY, {
+      ...latest,
+      failures,
+      fetchedAt: now,
+      nextAt: now + Math.min(POLL_GAP_MS * 2 ** (failures - 1), MAX_BACKOFF_MS),
+      claimedUntil: 0,
+    })
+    return
+  }
+
+  await $.store.set(STORE_KEY, {
+    reading: isNewer(reading, latest.reading) ? reading : latest.reading,
+    fetchedAt: now,
+    failures: 0,
+    nextAt: 0,
+    claimedUntil: 0,
+  })
+  await adopt($, reading)
+}
+
+const remainingOf = (reading: QuotaReading | null) =>
+  (reading?.windows ?? []).map(({ kind, percentUsed }) => ({
+    kind,
+    remaining: Math.max(0, Math.min(100, Math.round(100 - percentUsed))),
+  }))
+
 let hasWarned = false
 
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await refreshGit($, true)
+    // A reload drops the old timer with the old module
+    $.clock.every(CHECK_EVERY_MS, () => void syncQuota($, POLL_GAP_MS).catch(() => undefined))
+    void syncQuota($, EVENT_GAP_MS).catch(() => undefined)
 
     return next(e)
   })
@@ -90,8 +219,15 @@ export const register: Register = on => {
     return result
   })
 
+  on('session.measure', async ($, e, next) => {
+    if (e.changed.includes('rateLimits')) await takeLive($, e.rateLimits)
+
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     await refreshGit($, true)
+    void syncQuota($, EVENT_GAP_MS).catch(() => undefined)
 
     const { context } = await $.session.usage()
     const percent = context.percent ?? 0
@@ -128,6 +264,7 @@ export const register: Register = on => {
 
     const { context } = await $.session.usage()
     const info = await read($, git)
+    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: QUOTA_LABELS[q.kind] ?? q.kind }))
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
@@ -149,6 +286,16 @@ export const register: Register = on => {
               ({kilo(context.tokens)}/{kilo(context.window)}){' '}
             </Text>
           ) : null}
+          {quotas.length === 0 ? null : (
+            <Box>
+              <Text dimColor>│ </Text>
+              {quotas.map(q => (
+                <Text key={q.label} color={quotaColor(q.remaining)}>
+                  {q.label} 残{q.remaining}%{' '}
+                </Text>
+              ))}
+            </Box>
+          )}
           {info === null ? null : (
             <Box>
               <Text dimColor>│ </Text>

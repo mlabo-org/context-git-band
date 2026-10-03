@@ -6,8 +6,19 @@ export type GitInfo = {
   otherHostOnly: boolean
 }
 
+export type QuotaWindow = {
+  kind: string
+  percentUsed: number
+  resetsAt?: string
+}
+
+export type QuotaReading = {
+  windows: QuotaWindow[]
+  at: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'context-git-band': { git: GitInfo | null; isHidden: boolean }
+    'context-git-band': { git: GitInfo | null; isHidden: boolean; quota: QuotaReading | null }
   }
 }
