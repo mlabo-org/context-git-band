@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
-import type { GitInfo, Language, QuotaReading, QuotaWindow } from '../types'
+import type { GitInfo, QuotaReading, QuotaWindow, Words } from '../types'
 
 const git = atom({ plugin: 'context-git-band', key: 'git' } as const, null)
 const isHidden = atom({ plugin: 'context-git-band', key: 'isHidden' } as const, false)
@@ -30,37 +30,55 @@ const kilo = (n: number) => `${Math.round(n / 1000)}k`
 
 // Subscription windows shown as remaining percent, like mini-system-monitor-rs
 
-// The language the band's words are in: Claude Code's (every surface), and the
-// desktop app's display language, which the desktop Code tab prefers
+// The language the band's words are in, as a key (`ja`, `en`, `fr`, `zh-tw`, or a
+// language name): Claude Code's (every surface), and the desktop app's display
+// language, which the desktop Code tab prefers
 const language = atom({ plugin: 'context-git-band', key: 'language' } as const, null)
 const appLanguage = atom({ plugin: 'context-git-band', key: 'appLanguage' } as const, null)
+// Tables translated from EN, by language key
+const translations = atom({ plugin: 'context-git-band', key: 'translations' } as const, null)
 
 // How often a change of either is picked up
 const LANGUAGE_CHECK_MS = 3_000
 
-// The band's words, by the `language` option (userConfig); the weather names stay English
-const TEXT = {
-  ja: {
-    quota: { five_hour: '5h', seven_day: '週' } as Record<string, string>,
-    quotaAlt: (label: string, remaining: number) => `${label} 残${remaining}%`,
-    uncommitted: (count: number) => `${count} 未コミット`,
-    commitPrompt: '未コミットの変更をコミットして',
-    clean: '✔ クリーン',
-    noUpstream: 'upstreamなし',
-    notOnGitHub: 'GitHub未公開',
-    unpushed: (count: number) => `↑${count} 未push`,
-  },
-  en: {
-    quota: { five_hour: '5h', seven_day: 'wk' } as Record<string, string>,
-    quotaAlt: (label: string, remaining: number) => `${label} ${remaining}% left`,
-    uncommitted: (count: number) => `${count} uncommitted`,
-    commitPrompt: 'Commit the uncommitted changes',
-    clean: '✔ clean',
-    noUpstream: 'no upstream',
-    notOnGitHub: 'not on GitHub',
-    unpushed: (count: number) => `↑${count} unpushed`,
-  },
+// The band's own words as templates; `{name}` is filled in. Japanese and English
+// are written here; any other language is translated from English once (see
+// ensureWords). The weather names and the short labels (Hide, compact) stay English.
+const EN: Words = {
+  week: 'wk',
+  quotaAlt: '{label} {remaining}% left',
+  uncommitted: '{count} uncommitted',
+  commitPrompt: 'Commit the uncommitted changes',
+  clean: '✔ clean',
+  noUpstream: 'no upstream',
+  notOnGitHub: 'not on GitHub',
+  unpushed: '↑{count} unpushed',
+  compactSoon: 'Context {used}/{window}: compact soon',
+  compactSkipped: 'compact skipped: {reason}',
+  compactFailed: 'compact could not run now',
 }
+
+const JA: Words = {
+  week: '週',
+  quotaAlt: '{label} 残{remaining}%',
+  uncommitted: '{count} 未コミット',
+  commitPrompt: '未コミットの変更をコミットして',
+  clean: '✔ クリーン',
+  noUpstream: 'upstreamなし',
+  notOnGitHub: 'GitHub未公開',
+  unpushed: '↑{count} 未push',
+  compactSoon: 'コンテキスト {used}/{window}：そろそろ compact',
+  compactSkipped: 'compact を見送りました：{reason}',
+  compactFailed: '今は compact できません',
+}
+
+const WRITTEN: Record<string, Words> = { en: EN, ja: JA }
+
+const fill = (template: string, vars: Record<string, string | number>) =>
+  template.replace(/\{(\w+)\}/g, (whole, name: string) => (name in vars ? String(vars[name]) : whole))
+
+const wordsFor = (key: string | null, translated: Record<string, Words> | null) =>
+  (key === null ? undefined : (WRITTEN[key] ?? translated?.[key])) ?? EN
 
 const quotaColor = (remaining: number) => (remaining <= 10 ? 'red' : remaining <= 25 ? 'yellow' : 'green')
 
@@ -267,11 +285,12 @@ const remainingOf = (reading: QuotaReading | null) =>
 async function compactNow($: EngineInterface) {
   if (await read($, isCompacting)) return
   await update($, isCompacting, () => true)
+  const t = await toastWords($)
   try {
     const result = await $.session.compact()
-    if (result.skip !== undefined) $.ui.toast(`compact skipped: ${result.skip}`)
+    if (result.skip !== undefined) $.ui.toast(fill(t.compactSkipped, { reason: result.skip }))
   } catch {
-    $.ui.toast('compact could not run now')
+    $.ui.toast(t.compactFailed)
   } finally {
     await update($, isCompacting, () => false)
   }
@@ -287,15 +306,27 @@ async function refreshCompactAt($: EngineInterface) {
 
 let hasWarned = false
 
+// A language as a key: `ja` and `en` for the written tables, else a lowercased
+// locale tag (`fr`, `zh-tw`) or language name (`french`); null when it says nothing
+const languageKey = (raw: string): string | null => {
+  const text = raw.trim().toLowerCase().replace(/[.@].*$/, '').replace(/_/g, '-')
+  if (text === '' || text === 'c' || text === 'posix') return null
+  if (/^(ja|japanese|日本語)(?:$|[-\s])/.test(text)) return 'ja'
+  if (/^(en|english)(?:$|[-\s])/.test(text)) return 'en'
+  // A locale tag keeps its region only where it changes the script (zh-tw, zh-hant)
+  const tag = /^([a-z]{2,3})(?:-([a-z0-9]+))?$/.exec(text)
+  if (tag !== null) return tag[1] === 'zh' && tag[2] !== undefined ? `zh-${tag[2]}` : (tag[1] ?? text)
+  return text
+}
+
 // `auto` follows Claude Code's own `language` setting (the language Claude replies
-// in), then the locale variables; Japanese only when one of them says so
-async function claudeLanguage($: EngineInterface): Promise<Language> {
+// in), then the locale variables; English with nothing to go by
+async function claudeLanguage($: EngineInterface): Promise<string> {
   const { language: replyLanguage } = (await $.settings.read()) as { language?: unknown }
-  if (typeof replyLanguage === 'string' && replyLanguage.trim() !== '') {
-    return /^(ja|japanese|日本語)/i.test(replyLanguage.trim()) ? 'ja' : 'en'
-  }
+  const fromSetting = typeof replyLanguage === 'string' ? languageKey(replyLanguage) : null
+  if (fromSetting !== null) return fromSetting
   const locale = (await $.env.get('LC_ALL')) || (await $.env.get('LC_MESSAGES')) || (await $.env.get('LANG')) || ''
-  return /^ja/i.test(locale) ? 'ja' : 'en'
+  return languageKey(locale) ?? 'en'
 }
 
 // The desktop app keeps its display language as `locale` in its own config.json,
@@ -303,7 +334,7 @@ async function claudeLanguage($: EngineInterface): Promise<Language> {
 // mtime moves, and nothing but `locale` kept. Null where there is no such app.
 let appConfigMtime = -1
 
-async function readAppLanguage($: EngineInterface): Promise<Language | null | undefined> {
+async function readAppLanguage($: EngineInterface): Promise<string | null | undefined> {
   const home = await $.env.get('HOME')
   if (home === undefined) return null
   const path = `${home}/Library/Application Support/Claude/config.json`
@@ -312,13 +343,88 @@ async function readAppLanguage($: EngineInterface): Promise<Language | null | un
     if (mtimeMs === appConfigMtime) return undefined
     appConfigMtime = mtimeMs
     const { locale } = JSON.parse(String(await $.fs.read(path))) as { locale?: unknown }
-    return typeof locale === 'string' && locale !== '' ? (/^ja/i.test(locale) ? 'ja' : 'en') : null
+    return typeof locale === 'string' ? languageKey(locale) : null
   } catch {
     return null
   }
 }
 
-// Settles both languages; `ja` or `en` in the option fixes them on every surface
+// A translated table is kept in the store per language, stamped with the English
+// it came from, so a change of EN translates again
+const hashText = (text: string) => {
+  let hash = 5381
+  for (let i = 0; i < text.length; i += 1) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0
+  return hash.toString(36)
+}
+const EN_VERSION = hashText(JSON.stringify(EN))
+const TRANSLATE_CLAIM_MS = 60_000
+const translating = new Set<string>()
+
+const placeholders = (template: string) => (template.match(/\{\w+\}/g) ?? []).sort().join()
+
+// A translation is taken whole or not at all: every key, every placeholder, one
+// line each, and no longer than the band can hold
+const checkWords = (value: unknown): Words | null => {
+  if (typeof value !== 'object' || value === null) return null
+  const table = value as Record<string, unknown>
+  for (const key of Object.keys(EN) as (keyof Words)[]) {
+    const text = table[key]
+    if (typeof text !== 'string' || text.trim() === '' || /[\n\[\]]/.test(text)) return null
+    if (placeholders(text) !== placeholders(EN[key])) return null
+    if (text.length > Math.max(24, EN[key].length * 2.5)) return null
+  }
+  return Object.fromEntries((Object.keys(EN) as (keyof Words)[]).map(key => [key, String(table[key])])) as Words
+}
+
+type StoredWords = { version: string; words: Words }
+
+// Makes the table for `key` ready: written, already translated, kept in the
+// store, or translated now by one small model call (the band shows English
+// until it lands). A failure leaves English and is tried again next session.
+async function ensureWords($: EngineInterface, key: string | null) {
+  if (key === null || key in WRITTEN || translating.has(key)) return
+  if ((await read($, translations))?.[key] !== undefined) return
+  translating.add(key)
+  try {
+    const storeKey = `words:${key}`
+    const stored = (await $.store.get(storeKey)) as Partial<StoredWords> | undefined
+    const kept = stored?.version === EN_VERSION ? checkWords(stored.words) : null
+    if (kept !== null) {
+      await update($, translations, current => ({ ...current, [key]: kept }))
+      return
+    }
+    const now = await $.clock.now()
+    const claimKey = `translating:${key}`
+    if (Number((await $.store.get(claimKey)) ?? 0) > now) return
+    await $.store.set(claimKey, now + TRANSLATE_CLAIM_MS)
+    const result = await $.model.complete({
+      model: 'haiku',
+      system: 'You translate the user interface strings of a one-line status bar in a developer tool.',
+      prompt:
+        `Translate the values of this JSON object into the language "${key}" (a language name or a locale tag). ` +
+        'Keep every key. Keep each {placeholder} exactly as written. Keep the ✔ and ↑ marks, and keep 5h, GitHub, ' +
+        'upstream, push and compact as they are. Make each value as short as a status bar needs. ' +
+        'Answer with the JSON object only.\n\n' +
+        JSON.stringify(EN),
+      maxTokens: 1024,
+      timeoutMs: 30_000,
+    })
+    await $.store.delete(claimKey)
+    if (!result.isAnswered) return
+    const json = /\{[\s\S]*\}/.exec(result.text)?.[0]
+    const words = json === undefined ? null : checkWords(JSON.parse(json))
+    if (words === null) return
+    await $.store.set(storeKey, { version: EN_VERSION, words })
+    await update($, translations, current => ({ ...current, [key]: words }))
+  } catch {
+    // English stays
+  } finally {
+    translating.delete(key)
+  }
+}
+
+// Settles both languages and makes their tables ready; `ja` or `en` in the
+// option fixes them on every surface
 async function refreshLanguage($: EngineInterface, option: unknown) {
   if (option === 'ja' || option === 'en') {
     await update($, language, () => option)
@@ -329,6 +435,14 @@ async function refreshLanguage($: EngineInterface, option: unknown) {
   await update($, language, current => (current === claude ? current : claude))
   const app = await readAppLanguage($)
   if (app !== undefined) await update($, appLanguage, current => (current === app ? current : app))
+  void ensureWords($, claude)
+  void ensureWords($, await read($, appLanguage))
+}
+
+// Toasts show on every surface: the desktop app's language when there is one
+async function toastWords($: EngineInterface) {
+  const key = (await read($, appLanguage)) ?? (await read($, language))
+  return wordsFor(key, await read($, translations))
 }
 
 export const register: Register = (on, options) => {
@@ -382,7 +496,7 @@ export const register: Register = (on, options) => {
     const tokens = context.tokens ?? 0
     if (at !== null && tokens >= at && !hasWarned) {
       hasWarned = true
-      $.ui.toast(`Context ${kilo(tokens)}/${kilo(context.window)}: compact soon`)
+      $.ui.toast(fill((await toastWords($)).compactSoon, { used: kilo(tokens), window: kilo(context.window) }))
     } else if (at !== null && tokens < at) {
       hasWarned = false
     }
@@ -398,7 +512,7 @@ export const register: Register = (on, options) => {
     const elements = $.ui.resolve(e)
     const claude = await read($, language)
     const app = e.surface === 'desktop' ? await read($, appLanguage) : null
-    const t = TEXT[app ?? claude ?? 'en']
+    const t = wordsFor(app ?? claude, await read($, translations))
     const { Box, Button, Markdown, Text } = elements
     const Svg = e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined
 
@@ -418,7 +532,7 @@ export const register: Register = (on, options) => {
 
     const { context } = await $.session.usage()
     const info = await read($, git)
-    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: t.quota[q.kind] ?? q.kind }))
+    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: q.kind === 'seven_day' ? t.week : q.kind === 'five_hour' ? '5h' : q.kind }))
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
@@ -470,7 +584,7 @@ export const register: Register = (on, options) => {
                     ) : (
                       <Svg
                         source={meterSvg(q.remaining)}
-                        alt={t.quotaAlt(q.label, q.remaining)}
+                        alt={fill(t.quotaAlt, { label: q.label, remaining: q.remaining })}
                         width={METER_WIDTH}
                         height={METER_HEIGHT}
                       />
@@ -490,7 +604,7 @@ export const register: Register = (on, options) => {
                   <Text color="yellow"> ● </Text>
                   <Button
                     key="commit"
-                    label={t.uncommitted(info.dirty)}
+                    label={fill(t.uncommitted, { count: info.dirty })}
                     onPress={() => void $.prompt.submit({ text: t.commitPrompt, asUser: true })}
                   />
                 </Box>
@@ -501,7 +615,7 @@ export const register: Register = (on, options) => {
                 {info.ahead === null ? (
                   <Text dimColor>{info.otherHostOnly ? ` · ${t.noUpstream}` : ` · ${t.notOnGitHub}`}</Text>
                 ) : info.ahead > 0 ? (
-                  <Text color="yellow"> · {t.unpushed(info.ahead)}</Text>
+                  <Text color="yellow"> · {fill(t.unpushed, { count: info.ahead })}</Text>
                 ) : null}
                 {info.behind > 0 ? <Text color="cyan"> · ↓{info.behind}</Text> : null}
                 <Text> </Text>

@@ -52,13 +52,15 @@ Claude Code only; Codex has no mods.
 
 ## Language
 
-The band's own words (`5h`/`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, and the prompt the uncommitted button sends) are in Japanese or English. The weather names are English in both.
+The band's own words (`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, the prompt the uncommitted button sends, and the toasts) follow the language you use. The weather names and the short labels (`5h`, `Hide`, `compact`) stay English.
 
-The plugin's `language` option picks them, `auto` by default:
+The plugin's `language` option picks the language, `auto` by default:
 
 - `auto`, in the desktop Code tab, follows the Claude desktop app's display language. It is read from `locale` in the app's own `~/Library/Application Support/Claude/config.json`: an internal file, not a documented interface, which also holds the app's sign-in cache, so the mod reads it again only when its modification time moves and keeps nothing but `locale`.
-- `auto`, in the terminal (and in the desktop when the app's language cannot be read), follows Claude Code's own `language` setting (the language Claude replies in): Japanese when it is Japanese, English when it is anything else. With no such setting, it follows the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`): Japanese when it starts with `ja`, English otherwise. A first install with neither shows English.
-- `ja` or `en` fixes the language on every surface.
+- `auto`, in the terminal (and in the desktop when the app's language cannot be read), follows Claude Code's own `language` setting (the language Claude replies in), then the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`). With neither, it is English.
+- `ja` or `en` fixes Japanese or English on every surface.
+
+Japanese and English are written into the mod. Any other language is translated from English the first time it appears, by one small model call (`haiku`, through the session's own client, so it counts against your usage). Until it lands, the band shows English; it then switches within seconds. The translation is kept in the plugin's `$.store` per language and reused by every session, and translated again only when the English words change. A translation that loses a `{placeholder}`, runs too long for the band, or is not well-formed is thrown away, and English stays.
 
 A switch shows without a new session: a change of Claude Code's `language` in `/config` at once, any other change within 3 seconds.
 

@@ -17,11 +17,23 @@ export type QuotaReading = {
   at: number
 }
 
-// The language of the band's own words
-export type Language = 'ja' | 'en'
+// The band's own words, as templates with {placeholders}
+export type Words = {
+  week: string
+  quotaAlt: string
+  uncommitted: string
+  commitPrompt: string
+  clean: string
+  noUpstream: string
+  notOnGitHub: string
+  unpushed: string
+  compactSoon: string
+  compactSkipped: string
+  compactFailed: string
+}
 
 declare module 'claude-code' {
   interface PluginState {
-    'context-git-band': { git: GitInfo | null; isHidden: boolean; isCompacting: boolean; compactAt: number | null; language: Language | null; appLanguage: Language | null; quota: QuotaReading | null }
+    'context-git-band': { git: GitInfo | null; isHidden: boolean; isCompacting: boolean; compactAt: number | null; language: string | null; appLanguage: string | null; translations: Record<string, Words> | null; quota: QuotaReading | null }
   }
 }
