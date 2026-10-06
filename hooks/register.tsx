@@ -30,8 +30,13 @@ const kilo = (n: number) => `${Math.round(n / 1000)}k`
 
 // Subscription windows shown as remaining percent, like mini-system-monitor-rs
 
-// The language the band's words are in, settled at session start
+// The language the band's words are in: Claude Code's (every surface), and the
+// desktop app's display language, which the desktop Code tab prefers
 const language = atom({ plugin: 'context-git-band', key: 'language' } as const, null)
+const appLanguage = atom({ plugin: 'context-git-band', key: 'appLanguage' } as const, null)
+
+// How often a change of either is picked up
+const LANGUAGE_CHECK_MS = 3_000
 
 // The band's words, by the `language` option (userConfig); the weather names stay English
 const TEXT = {
@@ -284,8 +289,7 @@ let hasWarned = false
 
 // `auto` follows Claude Code's own `language` setting (the language Claude replies
 // in), then the locale variables; Japanese only when one of them says so
-async function resolveLanguage($: EngineInterface, option: unknown): Promise<Language> {
-  if (option === 'ja' || option === 'en') return option
+async function claudeLanguage($: EngineInterface): Promise<Language> {
   const { language: replyLanguage } = (await $.settings.read()) as { language?: unknown }
   if (typeof replyLanguage === 'string' && replyLanguage.trim() !== '') {
     return /^(ja|japanese|日本語)/i.test(replyLanguage.trim()) ? 'ja' : 'en'
@@ -294,11 +298,44 @@ async function resolveLanguage($: EngineInterface, option: unknown): Promise<Lan
   return /^ja/i.test(locale) ? 'ja' : 'en'
 }
 
+// The desktop app keeps its display language as `locale` in its own config.json,
+// an internal file that also holds its sign-in cache: read again only when its
+// mtime moves, and nothing but `locale` kept. Null where there is no such app.
+let appConfigMtime = -1
+
+async function readAppLanguage($: EngineInterface): Promise<Language | null | undefined> {
+  const home = await $.env.get('HOME')
+  if (home === undefined) return null
+  const path = `${home}/Library/Application Support/Claude/config.json`
+  try {
+    const { mtimeMs } = await $.fs.stat(path)
+    if (mtimeMs === appConfigMtime) return undefined
+    appConfigMtime = mtimeMs
+    const { locale } = JSON.parse(String(await $.fs.read(path))) as { locale?: unknown }
+    return typeof locale === 'string' && locale !== '' ? (/^ja/i.test(locale) ? 'ja' : 'en') : null
+  } catch {
+    return null
+  }
+}
+
+// Settles both languages; `ja` or `en` in the option fixes them on every surface
+async function refreshLanguage($: EngineInterface, option: unknown) {
+  if (option === 'ja' || option === 'en') {
+    await update($, language, () => option)
+    await update($, appLanguage, () => null)
+    return
+  }
+  const claude = await claudeLanguage($)
+  await update($, language, current => (current === claude ? current : claude))
+  const app = await readAppLanguage($)
+  if (app !== undefined) await update($, appLanguage, current => (current === app ? current : app))
+}
+
 export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
-    const settled = await resolveLanguage($, options.language)
-    await update($, language, () => settled)
+    await refreshLanguage($, options.language)
+    $.clock.every(LANGUAGE_CHECK_MS, () => void refreshLanguage($, options.language).catch(() => undefined))
     await refreshGit($, true)
     // A reload drops the old timer with the old module
     $.clock.every(CHECK_EVERY_MS, () => void syncQuota($, POLL_GAP_MS).catch(() => undefined))
@@ -306,6 +343,14 @@ export const register: Register = (on, options) => {
     await refreshCompactAt($)
 
     return next(e)
+  })
+
+  // A `/config` change of Claude Code's language shows at once
+  on('config.set', async ($, e, next) => {
+    const result = await next(e)
+    await refreshLanguage($, options.language)
+
+    return result
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -351,7 +396,9 @@ export const register: Register = (on, options) => {
     }
 
     const elements = $.ui.resolve(e)
-    const t = TEXT[(await read($, language)) ?? 'en']
+    const claude = await read($, language)
+    const app = e.surface === 'desktop' ? await read($, appLanguage) : null
+    const t = TEXT[app ?? claude ?? 'en']
     const { Box, Button, Markdown, Text } = elements
     const Svg = e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined
 

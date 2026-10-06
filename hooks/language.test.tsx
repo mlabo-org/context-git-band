@@ -14,10 +14,20 @@ const CONTEXT = { tokens: 62_000, window: 200_000, percent: 31 }
 
 // A repo on main with two changed files and no upstream, in a 200k session,
 // with Claude Code's settings and the process environment given
-const world = (on: On, settings: Record<string, unknown>, env: Record<string, string>) => {
-  mock.clock(on)
+const world = (on: On, settings: Record<string, unknown>, env: Record<string, string>, app?: { locale: string; mtimeMs: number }) => {
+  const clock = mock.clock(on)
   mock.store(on)
-  mock.env(on, env)
+  mock.env(on, { HOME: '/Users/me', ...env })
+  // The desktop app's config.json, when there is an app
+  const APP_CONFIG = '/Users/me/Library/Application Support/Claude/config.json'
+  on('fs.stat', (_$, e) => {
+    if (app === undefined || e.path !== APP_CONFIG) return { deny: 'no such file' }
+    return { value: { kind: 'file', size: 100, mtimeMs: app.mtimeMs, isLink: false } }
+  })
+  on('fs.read', (_$, e) => {
+    if (app === undefined || e.path !== APP_CONFIG) return { deny: 'no such file' }
+    return { value: JSON.stringify({ locale: app.locale, 'oauth:tokenCache': 'secret' }) }
+  })
   on('settings.read', () => ({ value: settings }))
   on('session.usage', () => ({ value: { startedAt: 0, context: CONTEXT, rateLimits: [] } }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -29,6 +39,7 @@ const world = (on: On, settings: Record<string, unknown>, env: Record<string, st
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
+  return clock
 }
 
 const START = { cwd: '/tmp', surface: 'terminal', isInteractive: true } as const
@@ -56,4 +67,42 @@ describe('language option', () => {
       for (const query of c.shows) expect(await ui.find(query)).toBeDefined()
     })
   }
+
+  test('the desktop follows the app display language over Claude Code, the terminal does not', async ($, on) => {
+    world(on, { language: 'japanese' }, {}, { locale: 'en-US', mtimeMs: 1 })
+    await $.session.start(START)
+    const desktop = await $.ui.mount({ plugin: 'context-git-band', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
+    const terminal = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+
+    for (const query of ENGLISH) expect(await desktop.find(query)).toBeDefined()
+    for (const query of JAPANESE) expect(await terminal.find(query)).toBeDefined()
+  })
+
+  test('a switch of the app display language shows within seconds', async ($, on) => {
+    const app = { locale: 'ja-JP', mtimeMs: 1 }
+    const clock = world(on, {}, { LANG: 'en_US.UTF-8' }, app)
+    await $.session.start(START)
+    const desktop = await $.ui.mount({ plugin: 'context-git-band', surface: 'desktop', component: 'AbovePrompt', props: PROPS })
+    for (const query of JAPANESE) expect(await desktop.find(query)).toBeDefined()
+
+    app.locale = 'en-US'
+    app.mtimeMs = 2
+    await clock.advance(3_000)
+    for (const query of ENGLISH) expect(await desktop.find(query)).toBeDefined()
+  })
+
+  test('a switch of Claude Code language in /config shows at once', async ($, on) => {
+    const settings: Record<string, unknown> = { language: 'japanese' }
+    world(on, settings, {})
+    on('config.set', (_$, e) => {
+      settings.language = e.value
+      return { value: e.value }
+    })
+    await $.session.start(START)
+    const terminal = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+    for (const query of JAPANESE) expect(await terminal.find(query)).toBeDefined()
+
+    await $.config.set({ key: 'language', value: 'English' })
+    for (const query of ENGLISH) expect(await terminal.find(query)).toBeDefined()
+  })
 })

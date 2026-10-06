@@ -22,6 +22,6 @@ export type Language = 'ja' | 'en'
 
 declare module 'claude-code' {
   interface PluginState {
-    'context-git-band': { git: GitInfo | null; isHidden: boolean; isCompacting: boolean; compactAt: number | null; language: Language | null; quota: QuotaReading | null }
+    'context-git-band': { git: GitInfo | null; isHidden: boolean; isCompacting: boolean; compactAt: number | null; language: Language | null; appLanguage: Language | null; quota: QuotaReading | null }
   }
 }

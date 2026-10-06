@@ -56,10 +56,13 @@ The band's own words (`5h`/`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpus
 
 The plugin's `language` option picks them, `auto` by default:
 
-- `auto` follows Claude Code's own `language` setting (the language Claude replies in): Japanese when it is Japanese, English when it is anything else. With no such setting, it follows the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`): Japanese when it starts with `ja`, English otherwise. A first install with neither shows English.
-- `ja` or `en` fixes the language.
+- `auto`, in the desktop Code tab, follows the Claude desktop app's display language. It is read from `locale` in the app's own `~/Library/Application Support/Claude/config.json`: an internal file, not a documented interface, which also holds the app's sign-in cache, so the mod reads it again only when its modification time moves and keeps nothing but `locale`.
+- `auto`, in the terminal (and in the desktop when the app's language cannot be read), follows Claude Code's own `language` setting (the language Claude replies in): Japanese when it is Japanese, English when it is anything else. With no such setting, it follows the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`): Japanese when it starts with `ja`, English otherwise. A first install with neither shows English.
+- `ja` or `en` fixes the language on every surface.
 
-Change it in the `/config` panel, where the option is a picker of `auto`, `ja` and `en`; the value is saved under `pluginConfigs` in `~/.claude/settings.json`. The language is settled when a session starts.
+A switch shows without a new session: a change of Claude Code's `language` in `/config` at once, any other change within 3 seconds.
+
+Change the option in the `/config` panel, where it is a picker of `auto`, `ja` and `en`; the value is saved under `pluginConfigs` in `~/.claude/settings.json`.
 
 ## Install
 

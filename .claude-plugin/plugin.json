@@ -11,7 +11,7 @@
     "language": {
       "type": "string",
       "title": "Language",
-      "description": "The language of the band's words. auto follows Claude Code's own language setting, then the locale (LC_ALL, LC_MESSAGES, LANG): Japanese when one of them is Japanese, English otherwise. ja or en fixes it. The weather names stay English.",
+      "description": "The language of the band's words. auto follows the Claude desktop app's display language in the desktop Code tab, and elsewhere Claude Code's own language setting, then the locale (LC_ALL, LC_MESSAGES, LANG): Japanese when the one it follows is Japanese, English otherwise. ja or en fixes it. The weather names stay English.",
       "default": "auto",
       "options": [
         "auto",
