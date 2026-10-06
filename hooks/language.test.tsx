@@ -12,13 +12,15 @@ const PROPS = {
 
 const CONTEXT = { tokens: 62_000, window: 200_000, percent: 31 }
 
-// A repo on main with two changed files and no upstream, in a 200k session
-const world = (on: On) => {
+// A repo on main with two changed files and no upstream, in a 200k session,
+// with Claude Code's settings and the process environment given
+const world = (on: On, settings: Record<string, unknown>, env: Record<string, string>) => {
   mock.clock(on)
   mock.store(on)
+  mock.env(on, env)
+  on('settings.read', () => ({ value: settings }))
   on('session.usage', () => ({ value: { startedAt: 0, context: CONTEXT, rateLimits: [] } }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('process.run', (_$, e) => {
     const stdout = e.argv.includes('status') ? '## main\n M a.ts\n M b.ts\n' : ''
     return { value: { exitCode: 0, stdout, stderr: '' } }
@@ -30,32 +32,28 @@ const world = (on: On) => {
 }
 
 const START = { cwd: '/tmp', surface: 'terminal', isInteractive: true } as const
-const RATE_LIMITS = [
-  { kind: 'five_hour', percentUsed: 5 },
-  { kind: 'seven_day', percentUsed: 45 },
-]
+
+const JAPANESE = [{ type: 'Button', text: '2 未コミット' }, { type: 'Text', text: 'GitHub未公開' }] as const
+const ENGLISH = [{ type: 'Button', text: '2 uncommitted' }, { type: 'Text', text: 'not on GitHub' }] as const
 
 describe('language option', () => {
-  test('ja by default', async ($, on) => {
-    world(on)
-    await $.session.start(START)
-    await $.session.measure({ context: CONTEXT, rateLimits: RATE_LIMITS, changed: ['rateLimits'] })
-    const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+  const cases = [
+    { name: 'auto follows Claude Code replying in Japanese', options: {}, settings: { language: 'japanese' }, env: { LANG: 'en_US.UTF-8' }, shows: JAPANESE },
+    { name: 'auto follows a Japanese locale when Claude Code has no language', options: {}, settings: {}, env: { LANG: 'ja_JP.UTF-8' }, shows: JAPANESE },
+    { name: 'auto is English on a first install in an English locale', options: {}, settings: {}, env: { LANG: 'en_US.UTF-8' }, shows: ENGLISH },
+    { name: 'auto is English with nothing to go by', options: {}, settings: {}, env: {}, shows: ENGLISH },
+    { name: 'auto follows Claude Code replying in English over a Japanese locale', options: {}, settings: { language: 'English' }, env: { LANG: 'ja_JP.UTF-8' }, shows: ENGLISH },
+    { name: 'en fixes English', options: { language: 'en' }, settings: { language: 'japanese' }, env: { LANG: 'ja_JP.UTF-8' }, shows: ENGLISH },
+    { name: 'ja fixes Japanese', options: { language: 'ja' }, settings: {}, env: { LANG: 'en_US.UTF-8' }, shows: JAPANESE },
+  ]
 
-    expect(await ui.find({ type: 'Text', text: '週' })).toBeDefined()
-    expect(await ui.find({ type: 'Button', text: '2 未コミット' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'GitHub未公開' })).toBeDefined()
-  })
+  for (const c of cases) {
+    test(c.name, { options: c.options }, async ($, on) => {
+      world(on, c.settings, c.env)
+      await $.session.start(START)
+      const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
 
-  test('en when the option says so', { options: { language: 'en' } }, async ($, on) => {
-    world(on)
-    await $.session.start(START)
-    await $.session.measure({ context: CONTEXT, rateLimits: RATE_LIMITS, changed: ['rateLimits'] })
-    const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
-
-    expect(await ui.find({ type: 'Text', text: 'wk' })).toBeDefined()
-    expect(await ui.find({ type: 'Button', text: '2 uncommitted' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: 'not on GitHub' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /[぀-ヿ一-鿿]/ })).toBeUndefined()
-  })
+      for (const query of c.shows) expect(await ui.find(query)).toBeDefined()
+    })
+  }
 })

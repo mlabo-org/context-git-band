@@ -52,7 +52,14 @@ Claude Code only; Codex has no mods.
 
 ## Language
 
-The band's own words are Japanese by default. Set the plugin's `language` option to `en` for English (`5h`/`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, and the prompt the uncommitted button sends). The weather names are English in both. Change it in the `/config` panel, where the option is a picker of `ja` and `en`; the value is saved under `pluginConfigs` in `~/.claude/settings.json`.
+The band's own words (`5h`/`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, and the prompt the uncommitted button sends) are in Japanese or English. The weather names are English in both.
+
+The plugin's `language` option picks them, `auto` by default:
+
+- `auto` follows Claude Code's own `language` setting (the language Claude replies in): Japanese when it is Japanese, English when it is anything else. With no such setting, it follows the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`): Japanese when it starts with `ja`, English otherwise. A first install with neither shows English.
+- `ja` or `en` fixes the language.
+
+Change it in the `/config` panel, where the option is a picker of `auto`, `ja` and `en`; the value is saved under `pluginConfigs` in `~/.claude/settings.json`. The language is settled when a session starts.
 
 ## Install
 

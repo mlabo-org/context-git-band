@@ -19,6 +19,8 @@ const AUTO_COMPACT = 167_000
 const world = (on: On, tokens: () => number) => {
   mock.clock(on)
   mock.store(on)
+  mock.env(on, {})
+  on('settings.read', () => ({ value: {} }))
   on('session.usage', (_$, e) => {
     const context = { tokens: tokens(), window: WINDOW, percent: Math.round((tokens() / WINDOW) * 100) }
     const breakdown = e.breakdown === undefined ? {} : { breakdown: { autoCompactThreshold: AUTO_COMPACT } }

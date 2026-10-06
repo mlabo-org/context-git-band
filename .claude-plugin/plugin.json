@@ -11,9 +11,10 @@
     "language": {
       "type": "string",
       "title": "Language",
-      "description": "The language of the band's words: ja (Japanese) or en (English). The weather names stay English.",
-      "default": "ja",
+      "description": "The language of the band's words. auto follows Claude Code's own language setting, then the locale (LC_ALL, LC_MESSAGES, LANG): Japanese when one of them is Japanese, English otherwise. ja or en fixes it. The weather names stay English.",
+      "default": "auto",
       "options": [
+        "auto",
         "ja",
         "en"
       ]

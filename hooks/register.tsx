@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
-import type { GitInfo, QuotaReading, QuotaWindow } from '../types'
+import type { GitInfo, Language, QuotaReading, QuotaWindow } from '../types'
 
 const git = atom({ plugin: 'context-git-band', key: 'git' } as const, null)
 const isHidden = atom({ plugin: 'context-git-band', key: 'isHidden' } as const, false)
@@ -29,6 +29,9 @@ const weather = (percent: number) => {
 const kilo = (n: number) => `${Math.round(n / 1000)}k`
 
 // Subscription windows shown as remaining percent, like mini-system-monitor-rs
+
+// The language the band's words are in, settled at session start
+const language = atom({ plugin: 'context-git-band', key: 'language' } as const, null)
 
 // The band's words, by the `language` option (userConfig); the weather names stay English
 const TEXT = {
@@ -279,10 +282,23 @@ async function refreshCompactAt($: EngineInterface) {
 
 let hasWarned = false
 
+// `auto` follows Claude Code's own `language` setting (the language Claude replies
+// in), then the locale variables; Japanese only when one of them says so
+async function resolveLanguage($: EngineInterface, option: unknown): Promise<Language> {
+  if (option === 'ja' || option === 'en') return option
+  const { language: replyLanguage } = (await $.settings.read()) as { language?: unknown }
+  if (typeof replyLanguage === 'string' && replyLanguage.trim() !== '') {
+    return /^(ja|japanese|日本語)/i.test(replyLanguage.trim()) ? 'ja' : 'en'
+  }
+  const locale = (await $.env.get('LC_ALL')) || (await $.env.get('LC_MESSAGES')) || (await $.env.get('LANG')) || ''
+  return /^ja/i.test(locale) ? 'ja' : 'en'
+}
+
 export const register: Register = (on, options) => {
-  const t = options.language === 'en' ? TEXT.en : TEXT.ja
 
   on('session.start', async ($, e, next) => {
+    const settled = await resolveLanguage($, options.language)
+    await update($, language, () => settled)
     await refreshGit($, true)
     // A reload drops the old timer with the old module
     $.clock.every(CHECK_EVERY_MS, () => void syncQuota($, POLL_GAP_MS).catch(() => undefined))
@@ -335,6 +351,7 @@ export const register: Register = (on, options) => {
     }
 
     const elements = $.ui.resolve(e)
+    const t = TEXT[(await read($, language)) ?? 'en']
     const { Box, Button, Markdown, Text } = elements
     const Svg = e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined
 

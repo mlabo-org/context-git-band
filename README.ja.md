@@ -52,7 +52,14 @@ Claude Code 専用です。Codex には mod の仕組みがありません。
 
 ## 表示言語
 
-band の言葉は、既定では日本語です。プラグインの設定項目 `language` を `en` にすると英語になります（`5h`/`wk`、`uncommitted`、`clean`、`not on GitHub`、`unpushed`、未コミットのボタンで送るプロンプト）。天気の名前は、どちらの言語でも英語です。`/config` パネルに `ja` と `en` の選択肢として出るので、そこで変えます。値は `~/.claude/settings.json` の `pluginConfigs` に保存されます。
+band の言葉（`5h`/`週`、`未コミット`、`クリーン`、`GitHub未公開`、`未push`、未コミットのボタンで送るプロンプト）は、日本語か英語で表示します。天気の名前は、どちらでも英語です。
+
+プラグインの設定項目 `language` で決まり、既定は `auto` です。
+
+- `auto`：Claude Code 自身の `language` 設定（Claude が返答する言語）に合わせます。日本語なら日本語、それ以外なら英語です。その設定がなければ、ロケール（`LC_ALL`、`LC_MESSAGES`、`LANG`）が `ja` で始まるときだけ日本語にし、それ以外は英語にします。どちらもない環境に初めて入れたときは英語です。
+- `ja` か `en`：その言語に固定します。
+
+`/config` パネルに `auto`、`ja`、`en` の選択肢として出るので、そこで変えます。値は `~/.claude/settings.json` の `pluginConfigs` に保存されます。言語はセッションを開いたときに決まります。
 
 ## インストール
 
