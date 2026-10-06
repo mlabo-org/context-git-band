@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-A Claude Code mod (needs Claude Code 2.1.287 or later). It draws one line above the prompt, in the terminal and in the desktop Code tab:
+A Claude Code mod (needs Claude Code 2.1.288 or later; tested on 2.1.288 and 2.1.291). It draws one line above the prompt, in the terminal and in the desktop Code tab:
 
 ![The band in the desktop Code tab, in English](docs/band-en.png)
 
@@ -33,17 +33,17 @@ Claude Code only; Codex has no mods.
 - Two sources, the newer reading shown:
   - this session's own API responses (`session.measure`'s `rateLimits`), shown the moment a window moves a whole point;
   - the account usage endpoint `https://api.anthropic.com/api/oauth/usage`, so use from other sessions shows too. It is fetched through `$.http.fetch` with the session's own credential (`$.session.authorize()`; the token never reaches the mod): at session start, when a turn ends (at most once a minute) and otherwise every 3 minutes. A failure or a 429 doubles the wait, up to 15 minutes.
-- The result, the last fetch time and the backoff are kept in the plugin's `$.store`, which every session reads, so open sessions share one fetch.
-- The endpoint is undocumented and may change or stop working.
+- The newest reading and the poll's own bookkeeping (last fetch time, backoff, a claim) are kept apart in the plugin's `$.store`, which every session reads, so open sessions share one fetch and none overwrites another's backoff.
+- The endpoint is not part of Anthropic's public API: it may change or stop working at any time, and whether the terms of service allow a third-party tool to call it has not been confirmed. Use it at your own risk; with no subscription sign-in, the mod never calls it.
 - Nothing shows until one of the sources has a reading, nor off a subscription (an API key).
 
 ### Git state
 
 - The session folder's branch, uncommitted files, unpushed commits (↑) and commits behind (↓).
-- A branch with no upstream shows `GitHub未公開`, or `upstreamなし` when the repo's remotes are all off GitHub.
-- It is read at session start, on each prompt, after Bash/Edit/Write tool calls (at most once every 2 s) and when a turn ends.
+- A branch with no upstream shows `not on GitHub`, or `no upstream` when the repo's remotes are all off GitHub.
+- It is read in the background at session start, on each prompt, after Bash/Edit/Write tool calls (at most once every 2 s) and when a turn ends, with `git --no-optional-locks`, so it never takes the index lock from your own git commands.
 - In a folder that is not a Git repository, or on a host that cannot run commands (`$.process` is CLI only), the line shows the context part alone.
-- When there are uncommitted files, the count is a button: pressing it submits `未コミットの変更をコミットして` as your prompt, so the session starts the commit (queued until the current turn ends).
+- When there are uncommitted files, the count is a button: pressing it submits `Commit the uncommitted changes` (in the band's language) as your prompt, so the session starts the commit (queued until the current turn ends).
 
 ### Hide
 
@@ -60,7 +60,7 @@ The plugin's `language` option picks the language, `auto` by default:
 - `auto`, in the terminal (and in the desktop when the app's language cannot be read), follows Claude Code's own `language` setting (the language Claude replies in), then the locale (`LC_ALL`, `LC_MESSAGES`, `LANG`). With neither, it is English.
 - `ja` or `en` fixes Japanese or English on every surface.
 
-Japanese and English are written into the mod. Any other language is translated from English the first time it appears, by one small model call (`haiku`, through the session's own client, so it counts against your usage). Until it lands, the band shows English; it then switches within seconds. The translation is kept in the plugin's `$.store` per language and reused by every session, and translated again only when the English words change. A translation that loses a `{placeholder}`, runs too long for the band, or is not well-formed is thrown away, and English stays.
+Japanese and English are written into the mod. Any other language is translated from English the first time it appears, by one small model call (`haiku`, through the session's own client, so it counts against your usage). Until it lands, the band shows English; it then switches within seconds. The translation is kept in the plugin's `$.store` per language and reused by every session, and translated again only when the English words change. A translation that loses a `{placeholder}`, runs too long for the band, or is not well-formed is thrown away, and that language then stays in English in every session, with no further call, until the English words change.
 
 A switch shows without a new session: a change of Claude Code's `language` in `/config` at once, any other change within 3 seconds.
 
@@ -68,13 +68,29 @@ Change the option in the `/config` panel, where it is a picker of `auto`, `ja` a
 
 ## Install
 
-The source of truth is this directory. Install it through the `suzuki-local-plugins` marketplace:
+In a Claude Code session (2.1.288 or later):
 
-```bash
-~/.claude/local-plugins/bin/claude-plugin-refresh context-git-band --execute
+```text
+/plugin install context-git-band --marketplace mlabo-org/context-git-band
 ```
 
-Then restart the Claude app or open a new session.
+Or from your shell:
+
+```bash
+claude plugin marketplace add mlabo-org/context-git-band
+```
+
+```bash
+claude plugin install context-git-band@context-git-band
+```
+
+Then start a new session. In the desktop app, you can also add the marketplace and install from **+ > Plugins**.
+
+To try a local copy for one session without installing it:
+
+```bash
+claude --plugin-dir /path/to/context-git-band
+```
 
 ## Check
 

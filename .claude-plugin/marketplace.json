@@ -1,0 +1,14 @@
+{
+  "name": "context-git-band",
+  "description": "One plugin: context-git-band, a Claude Code mod that draws the context window, the subscription quota and the git state above the prompt",
+  "owner": {
+    "name": "Makoto Suzuki",
+    "url": "https://github.com/mlabo-org"
+  },
+  "plugins": [
+    {
+      "name": "context-git-band",
+      "source": "."
+    }
+  ]
+}

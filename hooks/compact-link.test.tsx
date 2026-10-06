@@ -21,6 +21,7 @@ const world = (on: On, tokens: () => number) => {
   mock.store(on)
   mock.env(on, {})
   on('settings.read', () => ({ value: {} }))
+  on('session.surfaces', () => ({ value: ['terminal'] }))
   on('session.usage', (_$, e) => {
     const context = { tokens: tokens(), window: WINDOW, percent: Math.round((tokens() / WINDOW) * 100) }
     const breakdown = e.breakdown === undefined ? {} : { breakdown: { autoCompactThreshold: AUTO_COMPACT } }
@@ -54,6 +55,29 @@ describe('compact link', () => {
       expect(compacts).toBe(1)
     })
   }
+
+  test('two quick presses compact once', async ($, on) => {
+    let compacts = 0
+    let finish = () => {}
+    const running = new Promise<void>(resolve => {
+      finish = resolve
+    })
+    world(on, () => 120_000)
+    on('session.compact', async () => {
+      compacts += 1
+      await running
+      return { skip: 'test' }
+    })
+
+    await $.session.start(START)
+    const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+    // The second press lands while the first compaction still runs
+    const first = ui.press({ key: 'compact', link: { href: HREF } })
+    const second = ui.press({ key: 'compact', link: { href: HREF } })
+    finish()
+    await Promise.all([first, second])
+    expect(compacts).toBe(1)
+  })
 
   test('no link before that point or while a turn runs', async ($, on) => {
     // 116k: just under 167k less 50k

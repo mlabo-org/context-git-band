@@ -28,7 +28,6 @@ const weather = (percent: number) => {
 
 const kilo = (n: number) => `${Math.round(n / 1000)}k`
 
-// Subscription windows shown as remaining percent, like mini-system-monitor-rs
 
 // The language the band's words are in, as a key (`ja`, `en`, `fr`, `zh-tw`, or a
 // language name): Claude Code's (every surface), and the desktop app's display
@@ -146,7 +145,7 @@ async function refreshGit($: EngineInterface, force: boolean) {
   lastRefresh = now
 
   try {
-    const { exitCode, stdout } = await $.process.run(['git', 'status', '--porcelain=v1', '-b'], {
+    const { exitCode, stdout } = await $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v1', '-b'], {
       timeoutMs: 5000,
     })
     const info = exitCode === 0 ? parseStatus(stdout) : null
@@ -162,7 +161,7 @@ async function refreshGit($: EngineInterface, force: boolean) {
 
 // The subscription's 5-hour and weekly windows, from two sources:
 // - this session's API responses, pushed by `session.measure` (instant, this session's use only)
-// - the account usage endpoint mini-system-monitor-rs reads, polled (every session's use)
+// - the account usage endpoint (undocumented), polled (every session's use)
 // The newer reading wins. Polls are shared across sessions through `$.store`,
 // so any number of open sessions makes the requests of one.
 
@@ -171,7 +170,6 @@ const quota = atom({ plugin: 'context-git-band', key: 'quota' } as const, null)
 // Undocumented and may change; it answers 429 to aggressive polling
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const OAUTH_BETA = 'oauth-2025-04-20'
-const STORE_KEY = 'quota'
 const POLL_GAP_MS = 180_000
 const EVENT_GAP_MS = 60_000
 const CHECK_EVERY_MS = 30_000
@@ -181,19 +179,24 @@ const CLAIM_MS = 15_000
 
 const KINDS = ['five_hour', 'seven_day']
 
-type Shared = {
-  reading: QuotaReading | null
-  fetchedAt: number
-  failures: number
-  nextAt: number
-  claimedUntil: number
+// Two store keys, so no writer overwrites the other's part: the newest reading
+// (this session's responses and every poll write it) and the poll's own
+// bookkeeping (only a poll writes it)
+const READING_KEY = 'quota:reading'
+const POLL_KEY = 'quota:poll'
+
+type Poll = { fetchedAt: number; failures: number; nextAt: number; claim: { until: number; token: string } | null }
+
+const NO_POLL: Poll = { fetchedAt: 0, failures: 0, nextAt: 0, claim: null }
+
+const loadPoll = async ($: EngineInterface): Promise<Poll> => {
+  const value = await $.store.get(POLL_KEY)
+  return typeof value === 'object' && value !== null ? { ...NO_POLL, ...(value as Partial<Poll>) } : { ...NO_POLL }
 }
 
-const EMPTY: Shared = { reading: null, fetchedAt: 0, failures: 0, nextAt: 0, claimedUntil: 0 }
-
-const loadShared = async ($: EngineInterface): Promise<Shared> => {
-  const value = await $.store.get(STORE_KEY)
-  return typeof value === 'object' && value !== null ? { ...EMPTY, ...(value as Partial<Shared>) } : { ...EMPTY }
+const loadReading = async ($: EngineInterface): Promise<QuotaReading | null> => {
+  const value = (await $.store.get(READING_KEY)) as QuotaReading | undefined
+  return value !== undefined && Array.isArray(value.windows) && typeof value.at === 'number' ? value : null
 }
 
 const isNewer = (next: QuotaReading, current: QuotaReading | null | undefined) =>
@@ -201,6 +204,11 @@ const isNewer = (next: QuotaReading, current: QuotaReading | null | undefined) =
 
 const adopt = ($: EngineInterface, reading: QuotaReading) =>
   update($, quota, current => (isNewer(reading, current) ? reading : current))
+
+// Shares a reading unless the store already holds a newer one
+async function shareReading($: EngineInterface, reading: QuotaReading) {
+  if (isNewer(reading, await loadReading($))) await $.store.set(READING_KEY, reading)
+}
 
 // A reading from this session's own API responses: shown at once and shared
 async function takeLive($: EngineInterface, rateLimits: SessionRateLimit[]) {
@@ -210,8 +218,7 @@ async function takeLive($: EngineInterface, rateLimits: SessionRateLimit[]) {
   if (windows.length === 0) return
   const reading = { windows, at: await $.clock.now() }
   await adopt($, reading)
-  const shared = await loadShared($)
-  if (isNewer(reading, shared.reading)) await $.store.set(STORE_KEY, { ...shared, reading })
+  await shareReading($, reading)
 }
 
 type UsageWindow = { utilization?: number | null; resets_at?: string | null } | null | undefined
@@ -227,52 +234,59 @@ const parseUsage = (text: string, at: number): QuotaReading | null => {
   return windows.length === 0 ? null : { windows, at }
 }
 
-// Takes what another session fetched, then polls when `gapMs` has passed since
-// the last poll and no backoff or other session's request stands in the way
+let isPolling = false
+
+// Takes what another session shared, then polls when `gapMs` has passed since
+// the last poll and no backoff or other session's request stands in the way.
+// The store has no compare-and-set: a session writes a claim with its own token
+// and goes ahead only if that token reads back, which narrows (not closes) the
+// window in which two sessions both poll.
 async function syncQuota($: EngineInterface, gapMs: number) {
-  const shared = await loadShared($)
-  if (shared.reading !== null) await adopt($, shared.reading)
-
-  const now = await $.clock.now()
-  if (now < shared.nextAt || now < shared.claimedUntil || now - shared.fetchedAt < gapMs) return
-
-  // A subscription signs in with a bearer token; an API key has no such quota
-  const auth = await $.session.authorize()
-  if (auth === null || auth.kind !== 'bearer') return
-
-  await $.store.set(STORE_KEY, { ...shared, claimedUntil: now + CLAIM_MS })
-  let reading: QuotaReading | null = null
+  const shared = await loadReading($)
+  if (shared !== null) await adopt($, shared)
+  if (isPolling) return
+  isPolling = true
   try {
-    const response = await $.http.fetch(USAGE_URL, {
-      auth: auth.handle,
-      headers: { 'anthropic-beta': OAUTH_BETA, Accept: 'application/json' },
-    })
-    if (response.ok) reading = parseUsage(response.text, now)
-  } catch {
-    reading = null
-  }
+    const poll = await loadPoll($)
+    const now = await $.clock.now()
+    if (now < poll.nextAt || (poll.claim !== null && now < poll.claim.until) || now - poll.fetchedAt < gapMs) return
 
-  const latest = await loadShared($)
-  if (reading === null) {
-    const failures = shared.failures + 1
-    await $.store.set(STORE_KEY, {
-      ...latest,
-      failures,
-      fetchedAt: now,
-      nextAt: now + Math.min(POLL_GAP_MS * 2 ** (failures - 1), MAX_BACKOFF_MS),
-      claimedUntil: 0,
-    })
-    return
-  }
+    // A subscription signs in with a bearer token; an API key has no such quota
+    const auth = await $.session.authorize()
+    if (auth === null || auth.kind !== 'bearer') return
 
-  await $.store.set(STORE_KEY, {
-    reading: isNewer(reading, latest.reading) ? reading : latest.reading,
-    fetchedAt: now,
-    failures: 0,
-    nextAt: 0,
-    claimedUntil: 0,
-  })
-  await adopt($, reading)
+    const token = `${now}-${Math.random().toString(36).slice(2)}`
+    await $.store.set(POLL_KEY, { ...poll, claim: { until: now + CLAIM_MS, token } })
+    if ((await loadPoll($)).claim?.token !== token) return
+
+    let reading: QuotaReading | null = null
+    try {
+      const response = await $.http.fetch(USAGE_URL, {
+        auth: auth.handle,
+        headers: { 'anthropic-beta': OAUTH_BETA, Accept: 'application/json' },
+      })
+      if (response.ok) reading = parseUsage(response.text, now)
+    } catch {
+      reading = null
+    }
+
+    const latest = await loadPoll($)
+    if (reading === null) {
+      const failures = latest.failures + 1
+      await $.store.set(POLL_KEY, {
+        failures,
+        fetchedAt: now,
+        nextAt: now + Math.min(POLL_GAP_MS * 2 ** (failures - 1), MAX_BACKOFF_MS),
+        claim: null,
+      })
+      return
+    }
+    await $.store.set(POLL_KEY, { fetchedAt: now, failures: 0, nextAt: 0, claim: null })
+    await shareReading($, reading)
+    await adopt($, reading)
+  } finally {
+    isPolling = false
+  }
 }
 
 const remainingOf = (reading: QuotaReading | null) =>
@@ -281,17 +295,25 @@ const remainingOf = (reading: QuotaReading | null) =>
     remaining: Math.max(0, Math.min(100, Math.round(100 - percentUsed))),
   }))
 
-// `/compact`'s own call; refused while a turn runs, so the link shows only between turns
+// `/compact`'s own call; refused while a turn runs, so the link shows only between
+// turns. The module flag is set before any await, so a second press does nothing.
+let isCompactRunning = false
+
 async function compactNow($: EngineInterface) {
-  if (await read($, isCompacting)) return
-  await update($, isCompacting, () => true)
-  const t = await toastWords($)
+  if (isCompactRunning) return
+  isCompactRunning = true
   try {
-    const result = await $.session.compact()
-    if (result.skip !== undefined) $.ui.toast(fill(t.compactSkipped, { reason: result.skip }))
-  } catch {
-    $.ui.toast(t.compactFailed)
+    await update($, isCompacting, () => true)
+    let note: string | undefined
+    try {
+      const result = await $.session.compact()
+      if (result.skip !== undefined) note = fill((await toastWords($)).compactSkipped, { reason: result.skip })
+    } catch {
+      note = (await toastWords($)).compactFailed
+    }
+    if (note !== undefined) $.ui.toast(note)
   } finally {
+    isCompactRunning = false
     await update($, isCompacting, () => false)
   }
 }
@@ -307,16 +329,22 @@ async function refreshCompactAt($: EngineInterface) {
 let hasWarned = false
 
 // A language as a key: `ja` and `en` for the written tables, else a lowercased
-// locale tag (`fr`, `zh-tw`) or language name (`french`); null when it says nothing
+// locale tag (`fr`, `pt-br`, `zh-tw`, `sr-latin`) or language name (`french`);
+// null when it names no language (`C`, `POSIX`, a bare `UTF-8`)
 const languageKey = (raw: string): string | null => {
-  const text = raw.trim().toLowerCase().replace(/[.@].*$/, '').replace(/_/g, '-')
-  if (text === '' || text === 'c' || text === 'posix') return null
-  if (/^(ja|japanese|日本語)(?:$|[-\s])/.test(text)) return 'ja'
-  if (/^(en|english)(?:$|[-\s])/.test(text)) return 'en'
-  // A locale tag keeps its region only where it changes the script (zh-tw, zh-hant)
+  const lowered = raw.trim().toLowerCase()
+  // A locale's modifier names its script (sr_RS@latin); its encoding names nothing
+  const modifier = /@([a-z]+)/.exec(lowered)?.[1]
+  const text = lowered.replace(/[.@].*$/, '').replace(/_/g, '-')
+  if (text === '' || text === 'c' || text === 'posix' || /^utf-?8$/.test(text)) return null
+  if (/^(japanese|日本語)/.test(text) || /^ja(?:$|-)/.test(text)) return 'ja'
+  if (/^english/.test(text) || /^en(?:$|-)/.test(text)) return 'en'
   const tag = /^([a-z]{2,3})(?:-([a-z0-9]+))?$/.exec(text)
-  if (tag !== null) return tag[1] === 'zh' && tag[2] !== undefined ? `zh-${tag[2]}` : (tag[1] ?? text)
-  return text
+  if (tag === null) return text
+  const [, base = text, region] = tag
+  // Keep what changes the written language: zh-tw/zh-hant, pt-br, a script modifier
+  if (modifier !== undefined) return `${base}-${modifier}`
+  return region !== undefined && (base === 'zh' || base === 'pt') ? `${base}-${region}` : base
 }
 
 // `auto` follows Claude Code's own `language` setting (the language Claude replies
@@ -376,27 +404,34 @@ const checkWords = (value: unknown): Words | null => {
   return Object.fromEntries((Object.keys(EN) as (keyof Words)[]).map(key => [key, String(table[key])])) as Words
 }
 
-type StoredWords = { version: string; words: Words }
+// A language's table as kept: its words, or `failed` when its translation did not
+// hold, which keeps that language in English
+type StoredWords = { version: string; words?: Words; failed?: true }
 
 // Makes the table for `key` ready: written, already translated, kept in the
 // store, or translated now by one small model call (the band shows English
-// until it lands). A failure leaves English and is tried again next session.
+// until it lands). A failure fixes English for that language, in every session,
+// until the English words change; nothing is tried again before then.
 async function ensureWords($: EngineInterface, key: string | null) {
   if (key === null || key in WRITTEN || translating.has(key)) return
-  if ((await read($, translations))?.[key] !== undefined) return
   translating.add(key)
+  let claimKey: string | undefined
+  let isDone = false
+  const storeKey = `words:${key}`
   try {
-    const storeKey = `words:${key}`
+    if ((await read($, translations))?.[key] !== undefined) return
     const stored = (await $.store.get(storeKey)) as Partial<StoredWords> | undefined
+    if (stored?.version === EN_VERSION && stored.failed === true) return
     const kept = stored?.version === EN_VERSION ? checkWords(stored.words) : null
     if (kept !== null) {
       await update($, translations, current => ({ ...current, [key]: kept }))
       return
     }
     const now = await $.clock.now()
-    const claimKey = `translating:${key}`
-    if (Number((await $.store.get(claimKey)) ?? 0) > now) return
-    await $.store.set(claimKey, now + TRANSLATE_CLAIM_MS)
+    const claim = `translating:${key}`
+    if (Number((await $.store.get(claim)) ?? 0) > now) return
+    await $.store.set(claim, now + TRANSLATE_CLAIM_MS)
+    claimKey = claim
     const result = await $.model.complete({
       model: 'haiku',
       system: 'You translate the user interface strings of a one-line status bar in a developer tool.',
@@ -409,17 +444,21 @@ async function ensureWords($: EngineInterface, key: string | null) {
       maxTokens: 1024,
       timeoutMs: 30_000,
     })
-    await $.store.delete(claimKey)
     if (!result.isAnswered) return
     const json = /\{[\s\S]*\}/.exec(result.text)?.[0]
     const words = json === undefined ? null : checkWords(JSON.parse(json))
     if (words === null) return
     await $.store.set(storeKey, { version: EN_VERSION, words })
     await update($, translations, current => ({ ...current, [key]: words }))
+    isDone = true
   } catch {
     // English stays
   } finally {
     translating.delete(key)
+    if (claimKey !== undefined) {
+      await $.store.delete(claimKey).catch(() => undefined)
+      if (!isDone) await $.store.set(storeKey, { version: EN_VERSION, failed: true }).catch(() => undefined)
+    }
   }
 }
 
@@ -439,15 +478,20 @@ async function refreshLanguage($: EngineInterface, option: unknown) {
   void ensureWords($, await read($, appLanguage))
 }
 
-// Toasts show on every surface: the desktop app's language when there is one
+// Toasts follow the band's rule: the desktop app's language only when the
+// session draws on the desktop alone, Claude Code's otherwise
 async function toastWords($: EngineInterface) {
-  const key = (await read($, appLanguage)) ?? (await read($, language))
-  return wordsFor(key, await read($, translations))
+  const surfaces = await $.session.surfaces()
+  const isDesktopOnly = surfaces.length > 0 && surfaces.every(surface => surface === 'desktop')
+  const app = isDesktopOnly ? await read($, appLanguage) : null
+  return wordsFor(app ?? (await read($, language)), await read($, translations))
 }
 
 export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
+    // A reload in the middle of a compaction leaves the flag behind
+    await update($, isCompacting, () => false)
     await refreshLanguage($, options.language)
     $.clock.every(LANGUAGE_CHECK_MS, () => void refreshLanguage($, options.language).catch(() => undefined))
     await refreshGit($, true)
@@ -462,23 +506,24 @@ export const register: Register = (on, options) => {
   // A `/config` change of Claude Code's language shows at once
   on('config.set', async ($, e, next) => {
     const result = await next(e)
-    await refreshLanguage($, options.language)
+    await refreshLanguage($, options.language).catch(() => undefined)
 
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
-  on('prompt.submit', async ($, e, next) => {
-    await refreshGit($, false)
+  // Git is read in the background, so a prompt or a tool result never waits on it
+  on('prompt.submit', ($, e, next) => {
+    void refreshGit($, false).catch(() => undefined)
 
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
-    if (EDITING_TOOLS.includes(e.tool)) await refreshGit($, false)
+    if (EDITING_TOOLS.includes(e.tool)) void refreshGit($, false).catch(() => undefined)
 
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) await takeLive($, e.rateLimits)

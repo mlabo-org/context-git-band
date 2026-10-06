@@ -29,12 +29,12 @@ const FRENCH = {
 
 // A repo with two changed files and no upstream; Claude Code replies in `language`,
 // and the model answers a translation with `reply`
-const world = (on: On, language: string, reply: string) => {
+const world = (on: On, language: string, reply: string, env: Record<string, string> = {}) => {
   const calls: string[] = []
-  mock.clock(on)
+  const clock = mock.clock(on)
   mock.store(on)
-  mock.env(on, { HOME: '/Users/me' })
-  on('settings.read', () => ({ value: { language } }))
+  mock.env(on, { HOME: '/Users/me', ...env })
+  on('settings.read', () => ({ value: language === '' ? {} : { language } }))
   on('session.usage', () => ({ value: { startedAt: 0, context: CONTEXT, rateLimits: [] } }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('process.run', (_$, e) => {
@@ -49,14 +49,14 @@ const world = (on: On, language: string, reply: string) => {
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
-  return calls
+  return { calls, clock }
 }
 
 const START = { cwd: '/tmp', surface: 'terminal', isInteractive: true } as const
 
 describe('translated words', () => {
   test('another language is translated once and shown', async ($, on) => {
-    const calls = world(on, 'french', `Voici :\n${JSON.stringify(FRENCH)}`)
+    const { calls } = world(on, 'french', `Voici :\n${JSON.stringify(FRENCH)}`)
     await $.session.start(START)
     const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
     await ui.redraw()
@@ -73,7 +73,7 @@ describe('translated words', () => {
 
   test('a translation that drops a placeholder is thrown away', async ($, on) => {
     const broken = { ...FRENCH, uncommitted: 'non validés' }
-    const calls = world(on, 'french', JSON.stringify(broken))
+    const { calls } = world(on, 'french', JSON.stringify(broken))
     await $.session.start(START)
     const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
     await ui.redraw()
@@ -82,18 +82,43 @@ describe('translated words', () => {
     expect(await ui.find({ type: 'Button', text: '2 uncommitted' })).toBeDefined()
   })
 
-  test('a reply that is not JSON leaves English', async ($, on) => {
-    world(on, 'french', 'Désolé, je ne peux pas.')
+  test('a reply that is not JSON fixes English, and is never asked again', async ($, on) => {
+    const { calls, clock } = world(on, 'french', 'Désolé, je ne peux pas.')
     await $.session.start(START)
     const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
     await ui.redraw()
 
     expect(await ui.find({ type: 'Button', text: '2 uncommitted' })).toBeDefined()
+    // The 3 s check runs on, and a session starts again: still one call
+    await clock.advance(60_000)
+    await $.session.start(START)
+    expect(calls).toHaveLength(1)
+    expect(await ui.find({ type: 'Button', text: '2 uncommitted' })).toBeDefined()
   })
+
+  const keys = [
+    { name: 'a bare UTF-8 locale names no language', language: '', env: { LANG: 'UTF-8' }, calls: 0 },
+    { name: 'C.UTF-8 names no language', language: '', env: { LANG: 'C.UTF-8' }, calls: 0 },
+    { name: '日本語で is Japanese', language: '日本語で', env: {}, calls: 0 },
+    { name: 'Japanese, please is Japanese', language: 'Japanese, please', env: {}, calls: 0 },
+    { name: 'pt_BR keeps its region', language: '', env: { LANG: 'pt_BR.UTF-8' }, calls: 1, asks: '"pt-br"' },
+    { name: 'sr_RS@latin keeps its script', language: '', env: { LANG: 'sr_RS.UTF-8@latin' }, calls: 1, asks: '"sr-latin"' },
+    { name: 'zh_TW keeps its region', language: '', env: { LANG: 'zh_TW.UTF-8' }, calls: 1, asks: '"zh-tw"' },
+  ]
+  for (const k of keys) {
+    test(k.name, async ($, on) => {
+      const { calls } = world(on, k.language, JSON.stringify(FRENCH), k.env)
+      await $.session.start(START)
+      await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+
+      expect(calls).toHaveLength(k.calls)
+      if (k.asks !== undefined) expect(calls[0]).toContain(k.asks)
+    })
+  }
 
   for (const language of ['japanese', 'English']) {
     test(`${language} is written, never translated`, async ($, on) => {
-      const calls = world(on, language, JSON.stringify(FRENCH))
+      const { calls } = world(on, language, JSON.stringify(FRENCH))
       await $.session.start(START)
       await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
 
