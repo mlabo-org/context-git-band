@@ -19,6 +19,6 @@ export type QuotaReading = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'context-git-band': { git: GitInfo | null; isHidden: boolean; quota: QuotaReading | null }
+    'context-git-band': { git: GitInfo | null; isHidden: boolean; isCompacting: boolean; compactAt: number | null; quota: QuotaReading | null }
   }
 }

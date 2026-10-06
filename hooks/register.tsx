@@ -5,6 +5,17 @@ import type { GitInfo, QuotaReading, QuotaWindow } from '../types'
 
 const git = atom({ plugin: 'context-git-band', key: 'git' } as const, null)
 const isHidden = atom({ plugin: 'context-git-band', key: 'isHidden' } as const, false)
+const isCompacting = atom({ plugin: 'context-git-band', key: 'isCompacting' } as const, false)
+
+// Tokens at which the weather turns into a link that compacts, and a toast says so
+const compactAt = atom({ plugin: 'context-git-band', key: 'compactAt' } as const, null)
+
+// Claude Code compacts on its own at its threshold (the window less 33k as measured:
+// 167k of 200k, 967k of 1M). The link comes this many tokens earlier, so one or two
+// heavy turns still fit before the automatic one runs mid-task.
+const COMPACT_MARGIN_TOKENS = 50_000
+// Never opened: the press is the plugin's (pressableLinks)
+const COMPACT_HREF = 'http://localhost/compact'
 
 // The context window's fill as weather, with the guide's thresholds
 const weather = (percent: number) => {
@@ -221,6 +232,28 @@ const remainingOf = (reading: QuotaReading | null) =>
     remaining: Math.max(0, Math.min(100, Math.round(100 - percentUsed))),
   }))
 
+// `/compact`'s own call; refused while a turn runs, so the link shows only between turns
+async function compactNow($: EngineInterface) {
+  if (await read($, isCompacting)) return
+  await update($, isCompacting, () => true)
+  try {
+    const result = await $.session.compact()
+    if (result.skip !== undefined) $.ui.toast(`compact skipped: ${result.skip}`)
+  } catch {
+    $.ui.toast('compact could not run now')
+  } finally {
+    await update($, isCompacting, () => false)
+  }
+}
+
+// The engine's own threshold, read off the /context breakdown (estimated
+// locally, no request); with auto-compaction off the window is the limit
+async function refreshCompactAt($: EngineInterface) {
+  const { context } = await $.session.usage({ breakdown: 'summary' })
+  const limit = context.breakdown?.autoCompactThreshold ?? context.window
+  await update($, compactAt, () => Math.max(0, limit - COMPACT_MARGIN_TOKENS))
+}
+
 let hasWarned = false
 
 export const register: Register = on => {
@@ -230,6 +263,7 @@ export const register: Register = on => {
     // A reload drops the old timer with the old module
     $.clock.every(CHECK_EVERY_MS, () => void syncQuota($, POLL_GAP_MS).catch(() => undefined))
     void syncQuota($, EVENT_GAP_MS).catch(() => undefined)
+    await refreshCompactAt($)
 
     return next(e)
   })
@@ -257,12 +291,14 @@ export const register: Register = on => {
     await refreshGit($, true)
     void syncQuota($, EVENT_GAP_MS).catch(() => undefined)
 
+    await refreshCompactAt($)
     const { context } = await $.session.usage()
-    const percent = context.percent ?? 0
-    if (percent >= 90 && !hasWarned) {
+    const at = await read($, compactAt)
+    const tokens = context.tokens ?? 0
+    if (at !== null && tokens >= at && !hasWarned) {
       hasWarned = true
-      $.ui.toast(`Context ${percent}% full: compact soon`)
-    } else if (percent < 80) {
+      $.ui.toast(`Context ${kilo(tokens)}/${kilo(context.window)}: compact soon`)
+    } else if (at !== null && tokens < at) {
       hasWarned = false
     }
 
@@ -275,7 +311,7 @@ export const register: Register = on => {
     }
 
     const elements = $.ui.resolve(e)
-    const { Box, Button, Text } = elements
+    const { Box, Button, Markdown, Text } = elements
     const Svg = e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined
 
     // Hidden: leave one small button that brings the band back
@@ -298,24 +334,37 @@ export const register: Register = on => {
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
+    const compacting = await read($, isCompacting)
+    const at = await read($, compactAt)
+    const canCompact =
+      at !== null && context.tokens !== undefined && context.tokens >= at && !e.props.isWorking && !compacting
+    const tokensText =
+      hasContext && context.tokens !== undefined ? ` (${kilo(context.tokens)}/${kilo(context.window)})` : ''
     // The band is one site shared by every plugin: keep what the ones beneath draw
     const below = await next(e)
 
     return (
       <Box flexDirection="column">
         <Box>
-          {hasContext ? (
-            <Text color={w.color}>
-              {w.icon} {w.label} {context.percent}%{' '}
-            </Text>
+          {compacting ? (
+            <Text color="cyan">⟳ Compacting… </Text>
+          ) : canCompact ? (
+            <Markdown
+              key="compact"
+              text={`[${w.icon} ${w.label} ${context.percent}%${tokensText} ⟲ compact](${COMPACT_HREF})`}
+              onLinkPress={() => void compactNow($)}
+              pressableLinks={[COMPACT_HREF]}
+            />
+          ) : hasContext ? (
+            <Box>
+              <Text color={w.color}>
+                {w.icon} {w.label} {context.percent}%{' '}
+              </Text>
+              {tokensText === '' ? null : <Text dimColor>{tokensText.trim()} </Text>}
+            </Box>
           ) : (
             <Text dimColor>ctx -- </Text>
           )}
-          {hasContext && context.tokens !== undefined ? (
-            <Text dimColor>
-              ({kilo(context.tokens)}/{kilo(context.window)}){' '}
-            </Text>
-          ) : null}
           {quotas.length === 0 ? null : (
             <Box>
               <Text dimColor>│ </Text>
