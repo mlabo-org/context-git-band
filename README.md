@@ -4,8 +4,12 @@
 
 A Claude Code mod (needs Claude Code 2.1.287 or later). It draws one line above the prompt, in the terminal and in the desktop Code tab:
 
+![The band in the desktop Code tab, in English](docs/band-en.png)
+
+In the terminal, with `language` set to `en`:
+
 ```
-☂ Showers 54% (108k/200k) │ 5h ████████▊░ 88% 週 ███████▋░░ 77% │ main ● [5 未コミット] · ↑2 未push  [Hide]
+☂ Showers 54% (108k/200k) │ 5h ████████▊░ 88% wk ███████▋░░ 77% │ main ● [5 uncommitted] · ↑2 unpushed  [Hide]
 ```
 
 Claude Code only; Codex has no mods.
@@ -45,6 +49,10 @@ Claude Code only; Codex has no mods.
 
 - `Hide` collapses the line to a small `▸ ctx/git` button; press it to bring the line back.
 - The band stacks with the bands of other mods beneath it.
+
+## Language
+
+The band's own words are Japanese by default. Set the plugin's `language` option to `en` for English (`5h`/`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, and the prompt the uncommitted button sends). The weather names are English in both. Change it in the `/config` panel, where the option is a picker of `ja` and `en`; the value is saved under `pluginConfigs` in `~/.claude/settings.json`.
 
 ## Install
 

@@ -4,6 +4,10 @@
 
 Claude Code の mod です（Claude Code 2.1.287 以降が必要）。ターミナルでもデスクトップの Code タブでも、プロンプトの上に次の 1 行を表示します。
 
+![デスクトップの Code タブでの表示（日本語）](docs/band-ja.png)
+
+ターミナルでは次のようになります。
+
 ```
 ☂ Showers 54% (108k/200k) │ 5h ████████▊░ 88% 週 ███████▋░░ 77% │ main ● [5 未コミット] · ↑2 未push  [Hide]
 ```
@@ -45,6 +49,10 @@ Claude Code 専用です。Codex には mod の仕組みがありません。
 
 - `Hide` を押すと、1 行が小さな `▸ ctx/git` ボタンにたたまれます。もう一度押すと元に戻ります。
 - ほかの mod の band とは、上下に積み重ねて表示します。
+
+## 表示言語
+
+band の言葉は、既定では日本語です。プラグインの設定項目 `language` を `en` にすると英語になります（`5h`/`wk`、`uncommitted`、`clean`、`not on GitHub`、`unpushed`、未コミットのボタンで送るプロンプト）。天気の名前は、どちらの言語でも英語です。`/config` パネルに `ja` と `en` の選択肢として出るので、そこで変えます。値は `~/.claude/settings.json` の `pluginConfigs` に保存されます。
 
 ## インストール
 

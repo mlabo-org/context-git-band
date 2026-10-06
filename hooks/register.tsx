@@ -29,7 +29,30 @@ const weather = (percent: number) => {
 const kilo = (n: number) => `${Math.round(n / 1000)}k`
 
 // Subscription windows shown as remaining percent, like mini-system-monitor-rs
-const QUOTA_LABELS: Record<string, string> = { five_hour: '5h', seven_day: '週' }
+
+// The band's words, by the `language` option (userConfig); the weather names stay English
+const TEXT = {
+  ja: {
+    quota: { five_hour: '5h', seven_day: '週' } as Record<string, string>,
+    quotaAlt: (label: string, remaining: number) => `${label} 残${remaining}%`,
+    uncommitted: (count: number) => `${count} 未コミット`,
+    commitPrompt: '未コミットの変更をコミットして',
+    clean: '✔ クリーン',
+    noUpstream: 'upstreamなし',
+    notOnGitHub: 'GitHub未公開',
+    unpushed: (count: number) => `↑${count} 未push`,
+  },
+  en: {
+    quota: { five_hour: '5h', seven_day: 'wk' } as Record<string, string>,
+    quotaAlt: (label: string, remaining: number) => `${label} ${remaining}% left`,
+    uncommitted: (count: number) => `${count} uncommitted`,
+    commitPrompt: 'Commit the uncommitted changes',
+    clean: '✔ clean',
+    noUpstream: 'no upstream',
+    notOnGitHub: 'not on GitHub',
+    unpushed: (count: number) => `↑${count} unpushed`,
+  },
+}
 
 const quotaColor = (remaining: number) => (remaining <= 10 ? 'red' : remaining <= 25 ? 'yellow' : 'green')
 
@@ -256,7 +279,8 @@ async function refreshCompactAt($: EngineInterface) {
 
 let hasWarned = false
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const t = options.language === 'en' ? TEXT.en : TEXT.ja
 
   on('session.start', async ($, e, next) => {
     await refreshGit($, true)
@@ -330,7 +354,7 @@ export const register: Register = on => {
 
     const { context } = await $.session.usage()
     const info = await read($, git)
-    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: QUOTA_LABELS[q.kind] ?? q.kind }))
+    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: t.quota[q.kind] ?? q.kind }))
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
@@ -382,7 +406,7 @@ export const register: Register = on => {
                     ) : (
                       <Svg
                         source={meterSvg(q.remaining)}
-                        alt={`${q.label} 残${q.remaining}%`}
+                        alt={t.quotaAlt(q.label, q.remaining)}
                         width={METER_WIDTH}
                         height={METER_HEIGHT}
                       />
@@ -402,18 +426,18 @@ export const register: Register = on => {
                   <Text color="yellow"> ● </Text>
                   <Button
                     key="commit"
-                    label={`${info.dirty} 未コミット`}
-                    onPress={() => void $.prompt.submit({ text: '未コミットの変更をコミットして', asUser: true })}
+                    label={t.uncommitted(info.dirty)}
+                    onPress={() => void $.prompt.submit({ text: t.commitPrompt, asUser: true })}
                   />
                 </Box>
               ) : (
-                <Text color="green"> ✔ クリーン</Text>
+                <Text color="green"> {t.clean}</Text>
               )}
               <Text>
                 {info.ahead === null ? (
-                  <Text dimColor>{info.otherHostOnly ? ' · upstreamなし' : ' · GitHub未公開'}</Text>
+                  <Text dimColor>{info.otherHostOnly ? ` · ${t.noUpstream}` : ` · ${t.notOnGitHub}`}</Text>
                 ) : info.ahead > 0 ? (
-                  <Text color="yellow"> · ↑{info.ahead} 未push</Text>
+                  <Text color="yellow"> · {t.unpushed(info.ahead)}</Text>
                 ) : null}
                 {info.behind > 0 ? <Text color="cyan"> · ↓{info.behind}</Text> : null}
                 <Text> </Text>
