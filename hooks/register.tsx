@@ -20,7 +20,35 @@ const kilo = (n: number) => `${Math.round(n / 1000)}k`
 // Subscription windows shown as remaining percent, like mini-system-monitor-rs
 const QUOTA_LABELS: Record<string, string> = { five_hour: '5h', seven_day: '週' }
 
-const quotaColor = (remaining: number) => (remaining <= 10 ? 'red' : remaining <= 25 ? 'yellow' : undefined)
+const quotaColor = (remaining: number) => (remaining <= 10 ? 'red' : remaining <= 25 ? 'yellow' : 'green')
+
+// A gauge of the remaining percent, 10 cells, each split into eighths
+const METER_CELLS = 10
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+
+const meterText = (remaining: number) => {
+  const eighths = Math.round((remaining / 100) * METER_CELLS * 8)
+  const full = Math.floor(eighths / 8)
+  const partial = EIGHTHS[eighths % 8] ?? ''
+  const filled = '█'.repeat(full) + partial
+  return { filled, empty: '░'.repeat(METER_CELLS - full - (partial === '' ? 0 : 1)) }
+}
+
+// The desktop draws the gauge as a rounded bar; colors read on light and dark
+const SVG_COLORS: Record<string, string> = { green: '#2ea043', yellow: '#d29922', red: '#e5534b' }
+const METER_WIDTH = 64
+const METER_HEIGHT = 8
+
+const meterSvg = (remaining: number) => {
+  const fill = Math.round((remaining / 100) * METER_WIDTH)
+  const r = METER_HEIGHT / 2
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${METER_WIDTH}" height="${METER_HEIGHT}" viewBox="0 0 ${METER_WIDTH} ${METER_HEIGHT}">` +
+    `<clipPath id="c"><rect width="${METER_WIDTH}" height="${METER_HEIGHT}" rx="${r}"/></clipPath>` +
+    `<g clip-path="url(#c)"><rect width="${METER_WIDTH}" height="${METER_HEIGHT}" fill="#8b949e" fill-opacity="0.3"/>` +
+    `<rect width="${fill}" height="${METER_HEIGHT}" fill="${SVG_COLORS[quotaColor(remaining)]}"/></g></svg>`
+  )
+}
 
 // `git status --porcelain=v1 -b`: first line is the branch, the rest are changed files
 const parseStatus = (stdout: string): GitInfo => {
@@ -246,7 +274,9 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Text } = elements
+    const Svg = e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined
 
     // Hidden: leave one small button that brings the band back
     if (await read($, isHidden)) {
@@ -289,11 +319,29 @@ export const register: Register = on => {
           {quotas.length === 0 ? null : (
             <Box>
               <Text dimColor>│ </Text>
-              {quotas.map(q => (
-                <Text key={q.label} color={quotaColor(q.remaining)}>
-                  {q.label} 残{q.remaining}%{' '}
-                </Text>
-              ))}
+              {quotas.map(q => {
+                const color = quotaColor(q.remaining)
+                const meter = meterText(q.remaining)
+                return (
+                  <Box key={q.label}>
+                    <Text>{q.label} </Text>
+                    {Svg === undefined ? (
+                      <Text>
+                        <Text color={color}>{meter.filled}</Text>
+                        <Text dimColor>{meter.empty}</Text>
+                      </Text>
+                    ) : (
+                      <Svg
+                        source={meterSvg(q.remaining)}
+                        alt={`${q.label} 残${q.remaining}%`}
+                        width={METER_WIDTH}
+                        height={METER_HEIGHT}
+                      />
+                    )}
+                    <Text color={color}> {q.remaining}% </Text>
+                  </Box>
+                )
+              })}
             </Box>
           )}
           {info === null ? null : (
