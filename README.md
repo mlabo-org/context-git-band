@@ -15,7 +15,7 @@ A Claude Code mod (needs Claude Code 2.1.287 or later). It draws one line above 
 - When there are uncommitted files, the count is a button: pressing it submits `未コミットの変更をコミットして` as your prompt, so the session starts the commit (queued until the current turn ends).
 - `Hide` collapses the line to a small `▸ ctx/git` button; press it to bring the line back.
 
-Claude Code only; Codex has no mods. The source of truth is this directory; install it through the `suzuki-local-plugins` marketplace (`claude-plugin-refresh`).
+Claude Code only; Codex has no mods. The source of truth is this directory; install it through the `suzuki-local-plugins` marketplace (`~/.claude/local-plugins/bin/claude-plugin-refresh`).
 
 ## Check
 
