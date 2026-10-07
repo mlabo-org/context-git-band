@@ -40,7 +40,7 @@ Claude Code only; Codex has no mods.
 ### Git state
 
 - The session folder's branch, uncommitted files, unpushed commits (↑) and commits behind (↓).
-- A branch with no upstream shows `not on GitHub`, or `no upstream` when the repo's remotes are all off GitHub.
+- A branch with no upstream shows `not on GitHub`. It shows `no upstream` instead when a remote already has a branch of that name (pushed without `-u`), or when the repo's remotes are all off GitHub.
 - It is read in the background at session start, on each prompt, after Bash/Edit/Write tool calls (at most once every 2 s) and when a turn ends, with `git --no-optional-locks`, so it never takes the index lock from your own git commands.
 - In a folder that is not a Git repository, or on a host that cannot run commands (`$.process` is CLI only), the line shows the context part alone.
 - When there are uncommitted files, the count is a button: pressing it submits `Commit the uncommitted changes` (in the band's language) as your prompt, so the session starts the commit (queued until the current turn ends).

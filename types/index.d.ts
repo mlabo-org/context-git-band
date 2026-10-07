@@ -3,7 +3,7 @@ export type GitInfo = {
   dirty: number
   ahead: number | null
   behind: number
-  otherHostOnly: boolean
+  notOnGitHub: boolean
 }
 
 export type QuotaWindow = {

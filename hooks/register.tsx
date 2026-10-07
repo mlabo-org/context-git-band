@@ -123,15 +123,19 @@ const parseStatus = (stdout: string): GitInfo => {
     dirty: rest.length,
     ahead: hasUpstream ? (ahead ? Number(ahead[1]) : 0) : null,
     behind: behind ? Number(behind[1]) : 0,
-    otherHostOnly: false,
+    notOnGitHub: false,
   }
 }
 
-// True when the repo has remotes and none of them is on GitHub
-const hasOnlyOtherHost = (remotes: string) => {
+// `git remote -v` lists no remote, or a remote on GitHub
+const mayGoToGitHub = (remotes: string) => {
   const urls = remotes.split('\n').filter(line => line.trim() !== '')
-  return urls.length > 0 && !urls.some(line => line.includes('github.com'))
+  return urls.length === 0 || urls.some(line => line.includes('github.com'))
 }
+
+// `git for-each-ref --format=%(refname:lstrip=3) refs/remotes` names a branch
+// of this name on a remote, as when it was pushed without setting an upstream
+const isOnRemote = (refs: string, branch: string) => refs.split('\n').includes(branch)
 
 const EDITING_TOOLS = ['Bash', 'Edit', 'Write', 'NotebookEdit']
 
@@ -151,7 +155,13 @@ async function refreshGit($: EngineInterface, force: boolean) {
     const info = exitCode === 0 ? parseStatus(stdout) : null
     if (info !== null && info.ahead === null) {
       const remotes = await $.process.run(['git', 'remote', '-v'], { timeoutMs: 5000 })
-      info.otherHostOnly = remotes.exitCode === 0 && hasOnlyOtherHost(remotes.stdout)
+      if (remotes.exitCode === 0 && mayGoToGitHub(remotes.stdout)) {
+        const refs = await $.process.run(
+          ['git', 'for-each-ref', '--format=%(refname:lstrip=3)', 'refs/remotes'],
+          { timeoutMs: 5000 },
+        )
+        info.notOnGitHub = refs.exitCode === 0 && !isOnRemote(refs.stdout, info.branch)
+      }
     }
     await update($, git, () => info)
   } catch {
@@ -658,7 +668,7 @@ export const register: Register = (on, options) => {
               )}
               <Text>
                 {info.ahead === null ? (
-                  <Text dimColor>{info.otherHostOnly ? ` · ${t.noUpstream}` : ` · ${t.notOnGitHub}`}</Text>
+                  <Text dimColor>{info.notOnGitHub ? ` · ${t.notOnGitHub}` : ` · ${t.noUpstream}`}</Text>
                 ) : info.ahead > 0 ? (
                   <Text color="yellow"> · {fill(t.unpushed, { count: info.ahead })}</Text>
                 ) : null}
