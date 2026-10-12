@@ -23,7 +23,6 @@ const FRENCH = {
   notOnGitHub: 'pas sur GitHub',
   unpushed: '↑{count} non poussés',
   compactSoon: 'Contexte {used}/{window} : compact bientôt',
-  compactSkipped: 'compact ignoré : {reason}',
   compactFailed: 'compact impossible pour le moment',
 }
 

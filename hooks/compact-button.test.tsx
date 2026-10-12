@@ -40,9 +40,9 @@ describe('compact button', () => {
     test(`a button beside the weather compacts on ${surface}`, async ($, on) => {
       let compacts = 0
       world(on, () => 120_000)
-      on('session.compact', () => {
+      on('command.run', { command: 'compact' }, () => {
         compacts += 1
-        return { skip: 'test' }
+        return {}
       })
 
       await $.session.start(START)
@@ -62,10 +62,10 @@ describe('compact button', () => {
       finish = resolve
     })
     world(on, () => 120_000)
-    on('session.compact', async () => {
+    on('command.run', { command: 'compact' }, async () => {
       compacts += 1
       await running
-      return { skip: 'test' }
+      return {}
     })
 
     await $.session.start(START)
@@ -76,6 +76,22 @@ describe('compact button', () => {
     finish()
     await Promise.all([first, second])
     expect(compacts).toBe(1)
+  })
+
+  test('a refused compaction says why in the toast', async ($, on) => {
+    const toasts: string[] = []
+    world(on, () => 120_000)
+    on('ui.toast', (_$, e) => {
+      toasts.push(e.text)
+      return { value: undefined }
+    })
+    // Nothing beneath answers command.run: the call rejects
+
+    await $.session.start(START)
+    const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+    await ui.press({ key: 'compact' })
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]).toMatch(/^compact could not run now \(.+\)$/)
   })
 
   test('the button is there well before auto-compaction, but not while a turn runs', async ($, on) => {

@@ -51,7 +51,6 @@ const EN: Words = {
   notOnGitHub: 'not on GitHub',
   unpushed: '↑{count} unpushed',
   compactSoon: 'Context {used}/{window}: compact soon',
-  compactSkipped: 'compact skipped: {reason}',
   compactFailed: 'compact could not run now',
 }
 
@@ -65,7 +64,6 @@ const JA: Words = {
   notOnGitHub: 'GitHub未公開',
   unpushed: '↑{count} 未push',
   compactSoon: 'コンテキスト {used}/{window}：そろそろ compact',
-  compactSkipped: 'compact を見送りました：{reason}',
   compactFailed: '今は compact できません',
 }
 
@@ -303,8 +301,9 @@ const remainingOf = (reading: QuotaReading | null) =>
     remaining: Math.max(0, Math.min(100, Math.round(100 - percentUsed))),
   }))
 
-// `/compact`'s own call; refused while a turn runs, so the button shows only between
-// turns. The module flag is set before any await, so a second press does nothing.
+// Runs `/compact` as if typed: the one way to compact that every host takes (the
+// desktop app's session refuses `$.session.compact`). It is queued until the session is
+// idle. The module flag is set before any await, so a second press does nothing.
 let isCompactRunning = false
 
 async function compactNow($: EngineInterface) {
@@ -314,10 +313,11 @@ async function compactNow($: EngineInterface) {
     await update($, isCompacting, () => true)
     let note: string | undefined
     try {
-      const result = await $.session.compact()
-      if (result.skip !== undefined) note = fill((await toastWords($)).compactSkipped, { reason: result.skip })
-    } catch {
-      note = (await toastWords($)).compactFailed
+      await $.command.run({ command: 'compact' })
+    } catch (error) {
+      // The engine's own reason goes with it: why it refused is not the band's to guess
+      const reason = error instanceof Error ? error.message : String(error)
+      note = `${(await toastWords($)).compactFailed} (${reason})`
     }
     if (note !== undefined) $.ui.toast(note)
   } finally {
