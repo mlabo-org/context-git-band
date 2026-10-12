@@ -23,8 +23,9 @@ Claude Code only; Codex has no mods.
 ### Compact button
 
 - Between turns, a `⟲ compact` button sits beside the weather (`☂ Showers 60% (120k/200k) ⟲ compact`), at any fill.
-- Pressing it compacts the conversation, the same call `/compact` makes; the band shows `⟳ Compacting…` until it ends.
-- While a turn runs the button is gone, since a compaction is refused then.
+- Pressing it runs `/compact` as if you had typed it, so it works the same in the terminal and in the desktop app, and the command shows in the transcript. The band shows `⟳ Compacting…` until it ends.
+- If the compaction cannot run, a toast says so with Claude Code's own reason in brackets.
+- While a turn runs the button is gone; it comes back when the turn ends.
 - 50k tokens before Claude Code's own auto-compaction, a toast says so once. That point is read from the engine each turn (`autoCompactThreshold` of the `/context` breakdown, estimated locally, no request). Measured, it is the window less 33k, so the toast comes at 117k of 200k (58.5%) and 917k of 1M. With auto-compaction off, the window itself is the limit.
 
 ### Subscription quota
