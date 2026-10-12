@@ -20,12 +20,12 @@ Claude Code only; Codex has no mods.
 
 - The fill of the context window, as a share of the model's whole window: ☀ Clear (under 25%), ☁ Cloudy, ☂ Showers (50%), ☇ Storm (75%), ↯ Compact Soon (90%), with the tokens used.
 
-### Compact link
+### Compact button
 
-- 50k tokens before Claude Code's own auto-compaction, between turns, the weather part is drawn as a link (`☂ Showers 60% (120k/200k) ⟲ compact`), and a toast says so once.
-- Pressing the link compacts the conversation, the same call `/compact` makes; the band shows `⟳ Compacting…` until it ends.
-- The auto-compaction point is read from the engine each turn (`autoCompactThreshold` of the `/context` breakdown, estimated locally, no request). Measured, it is the window less 33k, so the link comes at 117k of 200k (58.5%) and 917k of 1M. With auto-compaction off, the window itself is the limit.
-- While a turn runs, the part stays plain text, since a compaction is refused then.
+- Between turns, a `⟲ compact` button sits beside the weather (`☂ Showers 60% (120k/200k) ⟲ compact`), at any fill.
+- Pressing it compacts the conversation, the same call `/compact` makes; the band shows `⟳ Compacting…` until it ends.
+- While a turn runs the button is gone, since a compaction is refused then.
+- 50k tokens before Claude Code's own auto-compaction, a toast says so once. That point is read from the engine each turn (`autoCompactThreshold` of the `/context` breakdown, estimated locally, no request). Measured, it is the window less 33k, so the toast comes at 117k of 200k (58.5%) and 917k of 1M. With auto-compaction off, the window itself is the limit.
 
 ### Subscription quota
 

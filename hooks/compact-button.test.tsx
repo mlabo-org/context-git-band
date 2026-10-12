@@ -10,7 +10,6 @@ const PROPS = {
   view: {},
 }
 
-const HREF = 'http://localhost/compact'
 const WINDOW = 200_000
 // What the engine reported for a 200k window: the window less 33k
 const AUTO_COMPACT = 167_000
@@ -36,9 +35,9 @@ const world = (on: On, tokens: () => number) => {
 
 const START = { cwd: '/tmp', surface: 'terminal', isInteractive: true } as const
 
-describe('compact link', () => {
+describe('compact button', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
-    test(`50k before auto-compaction the weather is a link that compacts on ${surface}`, async ($, on) => {
+    test(`a button beside the weather compacts on ${surface}`, async ($, on) => {
       let compacts = 0
       world(on, () => 120_000)
       on('session.compact', () => {
@@ -48,10 +47,10 @@ describe('compact link', () => {
 
       await $.session.start(START)
       const ui = await $.ui.mount({ plugin: 'context-git-band', surface, component: 'AbovePrompt', props: PROPS })
-      const link = await ui.find({ type: 'Markdown', key: 'compact' })
-      expect(String(link?.props.text)).toContain('Showers 60% (120k/200k)')
+      expect(await ui.find({ type: 'Text', text: 'Showers 60%' })).toBeDefined()
+      expect(await ui.find({ type: 'Button', key: 'compact' })).toBeDefined()
 
-      await ui.press({ key: 'compact', link: { href: HREF } })
+      await ui.press({ key: 'compact' })
       expect(compacts).toBe(1)
     })
   }
@@ -72,27 +71,25 @@ describe('compact link', () => {
     await $.session.start(START)
     const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
     // The second press lands while the first compaction still runs
-    const first = ui.press({ key: 'compact', link: { href: HREF } })
-    const second = ui.press({ key: 'compact', link: { href: HREF } })
+    const first = ui.press({ key: 'compact' })
+    const second = ui.press({ key: 'compact' })
     finish()
     await Promise.all([first, second])
     expect(compacts).toBe(1)
   })
 
-  test('no link before that point or while a turn runs', async ($, on) => {
-    // 116k: just under 167k less 50k
-    let tokens = 116_000
-    world(on, () => tokens)
+  test('the button is there well before auto-compaction, but not while a turn runs', async ($, on) => {
+    // 10k: far under 167k less 50k, where the toast comes
+    world(on, () => 10_000)
 
     await $.session.start(START)
     const ui = await $.ui.mount({ plugin: 'context-git-band', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
-    expect(await ui.find({ type: 'Markdown', key: 'compact' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'compact' })).toBeDefined()
 
-    tokens = 117_000
     await ui.redraw({ ...PROPS, isWorking: true })
-    expect(await ui.find({ type: 'Markdown', key: 'compact' })).toBeUndefined()
+    expect(await ui.find({ type: 'Button', key: 'compact' })).toBeUndefined()
 
     await ui.redraw(PROPS)
-    expect(await ui.find({ type: 'Markdown', key: 'compact' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'compact' })).toBeDefined()
   })
 })

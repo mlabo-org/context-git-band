@@ -1,7 +1,7 @@
 {
   "name": "context-git-band",
   "version": "0.1.0",
-  "description": "Claude Code mod: one line above the prompt with the context window fill (weather, with a compact link before auto-compaction), the subscription quota left (5-hour and weekly gauges) and the git state",
+  "description": "Claude Code mod: one line above the prompt with the context window fill (weather, with a compact button beside it), the subscription quota left (5-hour and weekly gauges) and the git state",
   "author": {
     "name": "Makoto Suzuki",
     "url": "https://github.com/mlabo-org"

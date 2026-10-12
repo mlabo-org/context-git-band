@@ -7,15 +7,13 @@ const git = atom({ plugin: 'context-git-band', key: 'git' } as const, null)
 const isHidden = atom({ plugin: 'context-git-band', key: 'isHidden' } as const, false)
 const isCompacting = atom({ plugin: 'context-git-band', key: 'isCompacting' } as const, false)
 
-// Tokens at which the weather turns into a link that compacts, and a toast says so
+// Tokens at which a toast says that auto-compaction is near
 const compactAt = atom({ plugin: 'context-git-band', key: 'compactAt' } as const, null)
 
 // Claude Code compacts on its own at its threshold (the window less 33k as measured:
-// 167k of 200k, 967k of 1M). The link comes this many tokens earlier, so one or two
+// 167k of 200k, 967k of 1M). The toast comes this many tokens earlier, so one or two
 // heavy turns still fit before the automatic one runs mid-task.
 const COMPACT_MARGIN_TOKENS = 50_000
-// Never opened: the press is the plugin's (pressableLinks)
-const COMPACT_HREF = 'http://localhost/compact'
 
 // The context window's fill as weather, with the guide's thresholds
 const weather = (percent: number) => {
@@ -305,7 +303,7 @@ const remainingOf = (reading: QuotaReading | null) =>
     remaining: Math.max(0, Math.min(100, Math.round(100 - percentUsed))),
   }))
 
-// `/compact`'s own call; refused while a turn runs, so the link shows only between
+// `/compact`'s own call; refused while a turn runs, so the button shows only between
 // turns. The module flag is set before any await, so a second press does nothing.
 let isCompactRunning = false
 
@@ -568,7 +566,7 @@ export const register: Register = (on, options) => {
     const claude = await read($, language)
     const app = e.surface === 'desktop' ? await read($, appLanguage) : null
     const t = wordsFor(app ?? claude, await read($, translations))
-    const { Box, Button, Markdown, Text } = elements
+    const { Box, Button, Text } = elements
     const Svg = e.surface === 'desktop' && 'Svg' in elements ? elements.Svg : undefined
 
     // Hidden: leave one small button that brings the band back
@@ -592,9 +590,7 @@ export const register: Register = (on, options) => {
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
     const compacting = await read($, isCompacting)
-    const at = await read($, compactAt)
-    const canCompact =
-      at !== null && context.tokens !== undefined && context.tokens >= at && !e.props.isWorking && !compacting
+    const canCompact = hasContext && !e.props.isWorking && !compacting
     const tokensText =
       hasContext && context.tokens !== undefined ? ` (${kilo(context.tokens)}/${kilo(context.window)})` : ''
     // The band is one site shared by every plugin: keep what the ones beneath draw
@@ -605,19 +601,18 @@ export const register: Register = (on, options) => {
         <Box>
           {compacting ? (
             <Text color="cyan">⟳ Compacting… </Text>
-          ) : canCompact ? (
-            <Markdown
-              key="compact"
-              text={`[${w.icon} ${w.label} ${context.percent}%${tokensText} ⟲ compact](${COMPACT_HREF})`}
-              onLinkPress={() => void compactNow($)}
-              pressableLinks={[COMPACT_HREF]}
-            />
           ) : hasContext ? (
             <Box>
               <Text color={w.color}>
                 {w.icon} {w.label} {context.percent}%{' '}
               </Text>
               {tokensText === '' ? null : <Text dimColor>{tokensText.trim()} </Text>}
+              {canCompact ? (
+                <Box>
+                  <Button key="compact" label="⟲ compact" onPress={() => void compactNow($)} />
+                  <Text> </Text>
+                </Box>
+              ) : null}
             </Box>
           ) : (
             <Text dimColor>ctx -- </Text>
