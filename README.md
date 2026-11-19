@@ -9,7 +9,7 @@ A Claude Code mod (needs Claude Code 2.1.288 or later; tested on 2.1.288 and 2.1
 In the terminal, with `language` set to `en`:
 
 ```
-☂ Showers 54% (108k/200k) │ 5h ████████▊░ 88% wk ███████▋░░ 77% Fable ██▋░░░░░░░ 27% │ main ● [5 uncommitted] · ↑2 unpushed  [Hide]
+☂ 54% (108k/200k) │ 5h ████████▊░ 88% wk ███████▋░░ 77% Fable ██▋░░░░░░░ 27% │ main ● [5 uncommitted] · ↑2 unpushed  [Hide]
 ```
 
 Claude Code only; Codex has no mods.
@@ -18,11 +18,11 @@ Claude Code only; Codex has no mods.
 
 ### Context window as weather
 
-- The fill of the context window, as a share of the model's whole window: ☀ Clear (under 25%), ☁ Cloudy, ☂ Showers (50%), ☇ Storm (75%), ↯ Compact Soon (90%), with the tokens used.
+- The fill of the context window, as a share of the model's whole window: ☀ Clear (under 25%), ☁ Cloudy, ☂ Showers (50%), ☇ Storm (75%), ↯ Compact Soon (90%), with the tokens used. The band draws the icon and the percent; only ↯ adds its words (`↯ Compact Soon 92%`). A window of exactly a million tokens reads `1M`.
 
 ### Compact button
 
-- Between turns, a `⟲ compact` button sits beside the weather (`☂ Showers 60% (120k/200k) ⟲ compact`), at any fill.
+- Between turns, a `comp` button sits beside the weather (`☂ 60% (120k/200k) comp`), at any fill.
 - Pressing it runs `/compact` as if you had typed it, so it works the same in the terminal and in the desktop app, and the command shows in the transcript. The band shows `⟳ Compacting…` until it ends.
 - If the compaction cannot run, a toast says so with Claude Code's own reason in brackets.
 - While a turn runs the button is gone; it comes back when the turn ends.
@@ -55,7 +55,7 @@ Claude Code only; Codex has no mods.
 
 ## Language
 
-The band's own words (`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, the prompt the uncommitted button sends, and the toasts) follow the language you use. The weather names and the short labels (`5h`, `Hide`, `compact`) stay English.
+The band's own words (`wk`, `uncommitted`, `clean`, `not on GitHub`, `unpushed`, the prompt the uncommitted button sends, and the toasts) follow the language you use. The weather names and the short labels (`5h`, `Hide`, `comp`) stay English.
 
 The plugin's `language` option picks the language, `auto` by default:
 
