@@ -135,6 +135,9 @@ const isOnRemote = (refs: string, branch: string) => refs.split('\n').includes(b
 
 const EDITING_TOOLS = ['Bash', 'Edit', 'Write', 'NotebookEdit']
 
+// The other rows of the band that Hide takes with it: makoto's cache-band
+const HIDDEN_WITH = ['cache-band']
+
 let lastRefresh = 0
 
 // Reads git into the shared value; a folder that is not a repo, or a host
@@ -586,6 +589,16 @@ export const register: Register = (on, options) => {
 
     return next(e)
   })
+
+  // Hide also takes away the rows of the mods named here, so one button clears
+  // the band; they come back with it
+  on('ui.render', { component: 'AbovePromptList', plugin: '*' }, async ($, e, next) => {
+    if (!(await read($, isHidden))) return next(e)
+
+    const rows = e.props.rows.filter(row => !HIDDEN_WITH.includes(row.plugin.split('@')[0] ?? ''))
+
+    return next({ ...e, props: { ...e.props, rows } })
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) {
