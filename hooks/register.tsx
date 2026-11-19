@@ -519,6 +519,15 @@ export const register: Register = (on, options) => {
     return result
   }).catch(($, e, next) => next(e))
 
+  // A move to another folder (`/cd`, the desktop app placing a spare session)
+  // redraws the git part at once instead of keeping the old folder's
+  on('classic.CwdChanged', async ($, e, next) => {
+    const result = await next(e)
+    void refreshGit($, true).catch(() => undefined)
+
+    return result
+  }).catch(($, e, next) => next(e))
+
   // Git is read in the background, so a prompt or a tool result never waits on it
   on('prompt.submit', ($, e, next) => {
     void refreshGit($, false).catch(() => undefined)
