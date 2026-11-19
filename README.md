@@ -50,6 +50,7 @@ Claude Code only; Codex has no mods.
 ### Hide
 
 - `Hide` collapses the line to a small `▸ ctx/git` button; press it to bring the line back.
+- If [cache-band](https://github.com/mlabo-org/cache-band) is installed, its line hides and comes back with it. Other mods' lines stay.
 - The band stacks with the bands of other mods beneath it.
 
 ## Language

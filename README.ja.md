@@ -50,6 +50,7 @@ Claude Code 専用です。Codex には mod の仕組みがありません。
 ### Hide
 
 - `Hide` を押すと、1 行が小さな `▸ ctx/git` ボタンにたたまれます。もう一度押すと元に戻ります。
+- [cache-band](https://github.com/mlabo-org/cache-band) を入れているときは、その行も一緒に隠れ、一緒に戻ります。ほかの mod の行はそのまま残ります。
 - ほかの mod の band とは、上下に積み重ねて表示します。
 
 ## 表示言語
