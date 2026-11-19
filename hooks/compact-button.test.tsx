@@ -47,7 +47,9 @@ describe('compact button', () => {
 
       await $.session.start(START)
       const ui = await $.ui.mount({ plugin: 'context-git-band', surface, component: 'AbovePrompt', props: PROPS })
-      expect(await ui.find({ type: 'Text', text: 'Showers 60%' })).toBeDefined()
+      // The icon and color tell the weather; its word is left out below 90%
+      expect(await ui.find({ type: 'Text', text: '☂ 60%' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: 'Showers 60%' })).toBeUndefined()
       expect(await ui.find({ type: 'Button', key: 'compact' })).toBeDefined()
 
       await ui.press({ key: 'compact' })

@@ -647,13 +647,16 @@ export const register: Register = (on, options) => {
             <Text color="cyan">⟳ Compacting… </Text>
           ) : hasContext ? (
             <Box>
+              {/* The icon and color tell the weather; only the warning keeps its word */}
               <Text color={w.color}>
-                {w.icon} {w.label} {context.percent}%{' '}
+                {w.icon} {context.percent >= 90 ? `${w.label} ` : ''}{context.percent}%{' '}
               </Text>
               {tokensText === '' ? null : <Text dimColor>{tokensText.trim()} </Text>}
               {canCompact ? (
                 <Box>
-                  <Button key="compact" label="⟲ compact" onPress={() => void compactNow($)} />
+                  <Button key="compact" label="compact" onPress={() => void compactNow($)}>
+                    ⟲
+                  </Button>
                   <Text> </Text>
                 </Box>
               ) : null}
