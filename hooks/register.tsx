@@ -654,9 +654,7 @@ export const register: Register = (on, options) => {
               {tokensText === '' ? null : <Text dimColor>{tokensText.trim()} </Text>}
               {canCompact ? (
                 <Box>
-                  <Button key="compact" label="compact" onPress={() => void compactNow($)}>
-                    ⟲
-                  </Button>
+                  <Button key="compact" label="comp" onPress={() => void compactNow($)} />
                   <Text> </Text>
                 </Box>
               ) : null}
