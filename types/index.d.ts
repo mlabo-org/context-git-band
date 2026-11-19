@@ -10,6 +10,8 @@ export type QuotaWindow = {
   kind: string
   percentUsed: number
   resetsAt?: string
+  // A model's own weekly limit, named as the usage endpoint names the model ("Fable")
+  label?: string
 }
 
 export type QuotaReading = {

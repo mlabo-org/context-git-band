@@ -216,28 +216,48 @@ async function shareReading($: EngineInterface, reading: QuotaReading) {
   if (isNewer(reading, await loadReading($))) await $.store.set(READING_KEY, reading)
 }
 
-// A reading from this session's own API responses: shown at once and shared
+// A reading from this session's own API responses: shown at once and shared.
+// The responses carry the 5-hour and weekly windows only, so a model's own
+// weekly limit, which only the poll reads, is kept from the last reading.
 async function takeLive($: EngineInterface, rateLimits: SessionRateLimit[]) {
-  const windows: QuotaWindow[] = rateLimits
+  const live: QuotaWindow[] = rateLimits
     .filter(limit => KINDS.includes(limit.kind))
     .map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt }))
-  if (windows.length === 0) return
-  const reading = { windows, at: await $.clock.now() }
+  if (live.length === 0) return
+  const kept = ((await loadReading($))?.windows ?? []).filter(w => !live.some(l => l.kind === w.kind))
+  const reading = { windows: [...live, ...kept], at: await $.clock.now() }
   await adopt($, reading)
   await shareReading($, reading)
 }
 
 type UsageWindow = { utilization?: number | null; resets_at?: string | null } | null | undefined
 
+// One entry of the endpoint's `limits` list; a model's own weekly limit is
+// `weekly_scoped` with `scope.model.display_name` ("Fable")
+type UsageLimit = {
+  kind?: string
+  percent?: number | null
+  resets_at?: string | null
+  scope?: { model?: { display_name?: string | null } | null } | null
+}
+
+const scopedWindows = (limits: unknown): QuotaWindow[] =>
+  (Array.isArray(limits) ? (limits as UsageLimit[]) : []).flatMap(limit => {
+    const model = limit?.scope?.model?.display_name
+    return limit?.kind === 'weekly_scoped' && typeof model === 'string' && model !== '' && typeof limit.percent === 'number'
+      ? [{ kind: `weekly_scoped:${model}`, label: model, percentUsed: limit.percent, resetsAt: limit.resets_at ?? undefined }]
+      : []
+  })
+
 const parseUsage = (text: string, at: number): QuotaReading | null => {
-  const body = JSON.parse(text) as Record<string, UsageWindow>
+  const body = JSON.parse(text) as Record<string, unknown>
   const windows = KINDS.flatMap(kind => {
-    const window = body[kind]
+    const window = body[kind] as UsageWindow
     return typeof window?.utilization === 'number'
       ? [{ kind, percentUsed: window.utilization, resetsAt: window.resets_at ?? undefined }]
       : []
   })
-  return windows.length === 0 ? null : { windows, at }
+  return windows.length === 0 ? null : { windows: [...windows, ...scopedWindows(body.limits)], at }
 }
 
 let isPolling = false
@@ -296,8 +316,9 @@ async function syncQuota($: EngineInterface, gapMs: number) {
 }
 
 const remainingOf = (reading: QuotaReading | null) =>
-  (reading?.windows ?? []).map(({ kind, percentUsed }) => ({
+  (reading?.windows ?? []).map(({ kind, label, percentUsed }) => ({
     kind,
+    label,
     remaining: Math.max(0, Math.min(100, Math.round(100 - percentUsed))),
   }))
 
@@ -594,7 +615,7 @@ export const register: Register = (on, options) => {
 
     const { context } = await $.session.usage()
     const info = await read($, git)
-    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: q.kind === 'seven_day' ? t.week : q.kind === 'five_hour' ? '5h' : q.kind }))
+    const quotas = remainingOf(await read($, quota)).map(q => ({ ...q, label: q.label ?? (q.kind === 'seven_day' ? t.week : q.kind === 'five_hour' ? '5h' : q.kind) }))
 
     const hasContext = context.percent !== undefined
     const w = weather(context.percent ?? 0)
