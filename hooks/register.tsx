@@ -24,7 +24,8 @@ const weather = (percent: number) => {
   return { icon: '☀', label: 'Clear', color: 'green' }
 }
 
-const kilo = (n: number) => `${Math.round(n / 1000)}k`
+// 1000k reads as 1M, the width it takes in the band
+const kilo = (n: number) => (n >= 1_000_000 && n % 1_000_000 === 0 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`)
 
 
 // The language the band's words are in, as a key (`ja`, `en`, `fr`, `zh-tw`, or a
@@ -91,7 +92,7 @@ const meterText = (remaining: number) => {
 
 // The desktop draws the gauge as a rounded bar; colors read on light and dark
 const SVG_COLORS: Record<string, string> = { green: '#2ea043', yellow: '#d29922', red: '#e5534b' }
-const METER_WIDTH = 64
+const METER_WIDTH = 36
 const METER_HEIGHT = 8
 
 const meterSvg = (remaining: number) => {
@@ -661,14 +662,15 @@ export const register: Register = (on, options) => {
             <Text dimColor>ctx -- </Text>
           )}
           {quotas.length === 0 ? null : (
-            <Box>
-              <Text dimColor>│ </Text>
+            // Gaps, not spaces: the desktop drops a Text's trailing space
+            <Box columnGap="sm" alignItems="center" marginRight="xs">
+              <Text dimColor>│</Text>
               {quotas.map(q => {
                 const color = quotaColor(q.remaining)
                 const meter = meterText(q.remaining)
                 return (
-                  <Box key={q.label}>
-                    <Text>{q.label} </Text>
+                  <Box key={q.label} columnGap="xs" alignItems="center">
+                    <Text>{q.label}</Text>
                     {Svg === undefined ? (
                       <Text>
                         <Text color={color}>{meter.filled}</Text>
@@ -682,7 +684,7 @@ export const register: Register = (on, options) => {
                         height={METER_HEIGHT}
                       />
                     )}
-                    <Text color={color}> {q.remaining}% </Text>
+                    <Text color={color}>{q.remaining}%</Text>
                   </Box>
                 )
               })}
