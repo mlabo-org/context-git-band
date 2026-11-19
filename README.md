@@ -9,7 +9,7 @@ A Claude Code mod (needs Claude Code 2.1.288 or later; tested on 2.1.288 and 2.1
 In the terminal, with `language` set to `en`:
 
 ```
-☂ Showers 54% (108k/200k) │ 5h ████████▊░ 88% wk ███████▋░░ 77% │ main ● [5 uncommitted] · ↑2 unpushed  [Hide]
+☂ Showers 54% (108k/200k) │ 5h ████████▊░ 88% wk ███████▋░░ 77% Fable ██▋░░░░░░░ 27% │ main ● [5 uncommitted] · ↑2 unpushed  [Hide]
 ```
 
 Claude Code only; Codex has no mods.
@@ -31,6 +31,7 @@ Claude Code only; Codex has no mods.
 ### Subscription quota
 
 - What is left of the 5-hour and weekly windows, as remaining percent, each with a 10-cell gauge: green, yellow at 25% or less, red at 10% or less. The terminal draws the gauge in block characters (eighths of a cell); the desktop Code tab draws it as a rounded SVG bar.
+- A model with a weekly limit of its own (Fable, on plans that have one) gets a gauge of its own after the weekly one, named as the usage endpoint names the model. Only the endpoint reports it, so it moves with the endpoint's fetches (below), not with this session's responses; a reading from those keeps the last value.
 - Two sources, the newer reading shown:
   - this session's own API responses (`session.measure`'s `rateLimits`), shown the moment a window moves a whole point;
   - the account usage endpoint `https://api.anthropic.com/api/oauth/usage`, so use from other sessions shows too. It is fetched through `$.http.fetch` with the session's own credential (`$.session.authorize()`; the token never reaches the mod): at session start, when a turn ends (at most once a minute) and otherwise every 3 minutes. A failure or a 429 doubles the wait, up to 15 minutes.
